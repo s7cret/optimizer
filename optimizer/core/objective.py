@@ -1,16 +1,31 @@
-from optimizer.core.expression import safe_eval
+from optimizer.core.expression import safe_eval_numeric
 from optimizer.core.metric_registry import MetricRegistry
 
+
 def objective_direction(name, configured='auto'):
-    if configured!='auto': return configured
-    return 'minimize' if MetricRegistry().direction(name)=='minimize' else 'maximize'
+    if configured != 'auto':
+        return configured
+    return 'minimize' if MetricRegistry().direction(name) == 'minimize' else 'maximize'
+
 
 def compute_objective(metrics, objective='net_profit', direction='auto', expression=None):
-    if expression: return float(safe_eval(expression, metrics))
-    v=metrics.get(objective)
-    if v is None: raise KeyError(f'missing objective metric: {objective}')
+    if expression:
+        return safe_eval_numeric(expression, metrics)
+    v = metrics.get(objective)
+    if v is None:
+        raise KeyError(f'missing objective metric: {objective}')
     return float(v)
 
+
 def objective_sort_value(value, direction):
-    if value is None: return float('-inf')
-    return value if direction=='maximize' else -value
+    if value is None:
+        return float('-inf')
+    return value if direction == 'maximize' else -value
+
+
+def objective_better(a, b, direction):
+    if a is None:
+        return False
+    if b is None:
+        return True
+    return a > b if direction == 'maximize' else a < b

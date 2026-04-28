@@ -5,7 +5,7 @@ from dataclasses import asdict
 from typing import Any, cast
 from optimizer.core.parameter import Parameter
 from optimizer.core.diagnostic import Diagnostic
-from optimizer.core.expression import safe_eval, stable_hash
+from optimizer.core.expression import safe_eval_bool, stable_hash
 from optimizer.errors import ParameterValidationError, SafeExpressionError
 
 class ParameterSpace:
@@ -33,15 +33,20 @@ class ParameterSpace:
         while x <= end:
             vals.append(int(x) if p.param_type=='int' else float(x)); x += step
         return vals
-    def grid_size(self)->int:
-        n=1
-        for p in self.parameters: n*=len(self.values_for(p))
-        return n
-    def generate_grid(self, max_combinations:int|None=None):
-        count=0
+    def grid_size(self, *, respect_constraints: bool = False)->int:
+        if not respect_constraints:
+            n=1
+            for p in self.parameters: n*=len(self.values_for(p))
+            return n
+        return sum(1 for _ in self.generate_grid())
+    def iter_grid_with_validity(self):
         for vals in product(*[self.values_for(p) for p in self.parameters]):
             params={p.name:v for p,v in zip(self.parameters, vals)}
-            if self.is_valid_combination(params):
+            yield params, self.is_valid_combination(params)
+    def generate_grid(self, max_combinations:int|None=None):
+        count=0
+        for params, valid in self.iter_grid_with_validity():
+            if valid:
                 yield params; count+=1
                 if max_combinations and count>=max_combinations: return
     def random_sample(self, rng: random.Random)->dict[str,object]:
@@ -55,7 +60,11 @@ class ParameterSpace:
                 lo = float(cast(Any, p.min_val))  # validated non-None for enabled numeric params
                 hi = float(cast(Any, p.max_val))
                 v = max(lo, min(hi, float(cast(Any, v))))
-                if p.param_type=='int': v=int(round(v))
+                if p.param_type=='int':
+                    step = max(1, int(round(float(cast(Any, p.step or 1)))))
+                    base = int(round(lo))
+                    v = base + round((int(round(v)) - base) / step) * step
+                    v = int(max(lo, min(hi, v)))
             elif p.param_type=='bool': v=bool(v)
             elif p.options and v not in p.options: v=p.default
             out[p.name]=v
@@ -63,15 +72,15 @@ class ParameterSpace:
     def validate_params(self, params):
         ds=[]
         for p in self.parameters:
-            if p.name not in params: ds.append(Diagnostic('PARAM_MISSING','error',f'{p.name} missing')); continue
+            if p.name not in params: ds.append(Diagnostic('PARAM_MISSING', f'{p.name} missing', 'error')); continue
             v=params[p.name]
-            if p.param_type=='int' and not isinstance(v,int): ds.append(Diagnostic('PARAM_TYPE','error',f'{p.name} not int'))
-            if p.param_type=='float' and not isinstance(v,(int,float)): ds.append(Diagnostic('PARAM_TYPE','error',f'{p.name} not float'))
-            if p.param_type=='bool' and not isinstance(v,bool): ds.append(Diagnostic('PARAM_TYPE','error',f'{p.name} not bool'))
-            if p.options and v not in p.options: ds.append(Diagnostic('PARAM_OPTION','error',f'{p.name} not allowed'))
+            if p.param_type=='int' and not isinstance(v,int): ds.append(Diagnostic('PARAM_TYPE', f'{p.name} not int', 'error'))
+            if p.param_type=='float' and not isinstance(v,(int,float)): ds.append(Diagnostic('PARAM_TYPE', f'{p.name} not float', 'error'))
+            if p.param_type=='bool' and not isinstance(v,bool): ds.append(Diagnostic('PARAM_TYPE', f'{p.name} not bool', 'error'))
+            if p.options and v not in p.options: ds.append(Diagnostic('PARAM_OPTION', f'{p.name} not allowed', 'error'))
         return ds
     def is_valid_combination(self, params):
-        try: return all(bool(safe_eval(expr, params)) for expr in self.cross_constraints)
+        try: return all(safe_eval_bool(expr, params) for expr in self.cross_constraints)
         except Exception: return False
     def neighbors(self, params, radius_steps:int=1):
         out=[]

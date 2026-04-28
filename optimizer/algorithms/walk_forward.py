@@ -53,5 +53,5 @@ def run(parameters: Any, runner: Any, base_config: OptimizerConfig, *, start: in
             test_trial = run_one(1, best, ranged_runner(runner, w['test'], 'test'), test_cfg, 'walk_forward', 'walk_forward')
         results.append({'window': idx, 'ranges': w, 'train_result': train_res, 'test_trial': test_trial})
     if not results:
-        diags.append(Diagnostic('WALK_FORWARD_NO_WINDOWS', 'warning', 'No valid walk-forward windows were produced'))
+        diags.append(Diagnostic('WALK_FORWARD_NO_WINDOWS', 'No valid walk-forward windows were produced', 'warning'))
     return {'status': 'ok' if results else 'insufficient_data', 'windows': results, 'diagnostics': diags}
