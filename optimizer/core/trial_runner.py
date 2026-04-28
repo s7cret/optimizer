@@ -84,7 +84,11 @@ def run_one(trial_id, params, runner, config, space_hash, config_hash, is_baseli
             effective_obj = effective_obj - c.penalty * mult if direction == 'maximize' else effective_obj + c.penalty * mult
         bs = balanced_score(metrics)
         r = getattr(raw, 'to_dict', lambda: raw if isinstance(raw, dict) else None)()
-        trial = Trial(trial_id, dict(params), metrics, effective_obj, direction, None, c.hard_passed if config.constraint_mode in {'filter', 'both'} else True, {**c.violations, **c.soft_violations}, len(c.violations) + len(c.soft_violations), bs, metrics.get('robustness_score'), metrics.get('overfitting_score'), metrics.get('profit_concentration_score'), r if config.save_backtest_result else None, time.perf_counter() - t0, 'completed', False, is_baseline, baseline_name, getattr(raw, 'content_hash', None) if raw is not None else None, getattr(raw, 'data_fingerprint', None) if raw is not None else None, getattr(raw, 'runner_fingerprint', None) if raw is not None else None, getattr(raw, 'engine_config_hash', None) if raw is not None else None, space_hash, config_hash, __version__, None, None, diags, set(required) - set(metrics), started, now_ms(), params_hash, obj)
+        # `passed_constraints` means hard-threshold eligibility, not whether the
+        # trial remains visible in the leaderboard. In `penalty` mode a hard
+        # violator is kept and penalized, but it must still be ineligible for
+        # non-best_objective recommendations.
+        trial = Trial(trial_id, dict(params), metrics, effective_obj, direction, None, c.hard_passed, {**c.violations, **c.soft_violations}, len(c.violations) + len(c.soft_violations), bs, metrics.get('robustness_score'), metrics.get('overfitting_score'), metrics.get('profit_concentration_score'), r if config.save_backtest_result else None, time.perf_counter() - t0, 'completed', False, is_baseline, baseline_name, getattr(raw, 'content_hash', None) if raw is not None else None, getattr(raw, 'data_fingerprint', None) if raw is not None else None, getattr(raw, 'runner_fingerprint', None) if raw is not None else None, getattr(raw, 'engine_config_hash', None) if raw is not None else None, space_hash, config_hash, __version__, None, None, diags, set(required) - set(metrics), started, now_ms(), params_hash, obj)
         return trial
     except concurrent.futures.TimeoutError:
         status = 'timeout'; err = 'trial timeout'; tr = traceback.format_exc()

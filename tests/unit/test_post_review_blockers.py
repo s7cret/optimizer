@@ -140,3 +140,27 @@ def test_placeholder_cli_commands_exit_nonzero(tmp_path):
     )
     assert proc.returncode == 2
     assert 'no standalone CLI implementation' in proc.stderr
+
+
+def test_penalty_mode_hard_constraint_violators_are_not_recommended(tmp_path):
+    cfg = OptimizerConfig(
+        output_dir=tmp_path,
+        storage_backend='json',
+        selection_mode='balanced',
+        constraint_mode='penalty',
+        max_trials=2,
+        use_profile_auto_constraints=False,
+        constraints={'max_drawdown_percent': {'max': 1, 'hard': True}},
+    )
+    res = optimize(
+        [Parameter('x', 'int', 1, 1, 2, 1)],
+        lambda p: {'net_profit': p['x'], 'max_drawdown_percent': 99.0, 'profit_factor': 1.0, 'sharpe_ratio': 1.0},
+        cfg,
+    )
+
+    assert res.recommended_profile == 'best_balanced'
+    assert res.recommended_trial is None
+    assert all(t.status == 'completed' for t in res.all_trials)
+    assert all(t.passed_constraints is False for t in res.all_trials)
+    assert all(t.objective_value is not None for t in res.all_trials)  # kept in leaderboard with penalty
+    assert any(d.code == 'NO_TRIALS_PASSED_CONSTRAINTS' for d in res.diagnostics)
