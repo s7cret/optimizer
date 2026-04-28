@@ -1,0 +1,10 @@
+from dataclasses import dataclass, field, asdict
+from optimizer.results.trial import Trial
+from optimizer.results.profile_result import ResultProfile
+@dataclass
+class OptimizerResult:
+    recommended_trial:Trial|None; recommended_profile:str|None; best_trial:Trial|None; top_trials:list[Trial]
+    all_trials:list[Trial]|None=None; passed_trials:list[Trial]|None=None; failed_constraint_trials:list[Trial]|None=None; storage_ref:str|None=None; trials_count_by_status:dict[str,int]=field(default_factory=dict)
+    profiles:dict[str,ResultProfile]=field(default_factory=dict); best_objective:Trial|None=None; best_passed_constraints:Trial|None=None; best_balanced:Trial|None=None; most_robust:Trial|None=None; best_profit:Trial|None=None; best_drawdown:Trial|None=None; best_profit_factor:Trial|None=None; best_sharpe:Trial|None=None; pareto_front:list[Trial]|None=None
+    diagnostics:list=field(default_factory=list); analysis:dict[str,object]=field(default_factory=dict)
+    def to_dict(self): return asdict(self)
