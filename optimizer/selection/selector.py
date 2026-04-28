@@ -20,7 +20,10 @@ def build_profiles(trials, config):
     pool = list(trials) if getattr(config, 'include_baseline_in_optimization_candidates', False) else [t for t in trials if not t.is_baseline]
     completed = [t for t in pool if t.status == 'completed']
     passed = [t for t in completed if t.passed_constraints]
-    candidates = passed or completed
+    # Threshold-first selection: profiles other than best_objective must never
+    # promote hard-constraint violators. If nothing passed, those profiles are
+    # intentionally empty and choose_recommended() returns None for risk modes.
+    candidates = passed
     profiles = {}
     bo = _best(completed, lambda t: objective_sort_value(t.objective_value, t.objective_direction), True)
     profiles['best_objective'] = ResultProfile('best_objective', bo, 'best objective value respecting objective direction', 'objective_value', None if bo is None else bo.objective_value)
@@ -44,4 +47,7 @@ def choose_recommended(profiles, mode='best_after_constraints'):
     order = {'best_objective': 'best_objective', 'best_after_constraints': 'best_passed_constraints', 'balanced': 'best_balanced', 'robust': 'most_robust', 'conservative': 'best_drawdown', 'aggressive': 'best_profit', 'pareto': 'pareto_front', 'pareto_knee': 'pareto_knee'}
     name = order.get(mode, 'best_passed_constraints')
     p = profiles.get(name)
-    return (p.trial if p else None), name
+    trial = p.trial if p else None
+    if name != 'best_objective' and trial is not None and not trial.passed_constraints:
+        trial = None
+    return trial, name

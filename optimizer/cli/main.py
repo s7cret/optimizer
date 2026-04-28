@@ -77,4 +77,4 @@ def main(argv=None):
         return 2
 
 
-if __name__ == '__main__': main()
+if __name__ == '__main__': sys.exit(main())

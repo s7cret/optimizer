@@ -31,6 +31,13 @@ def _key(params):
     return json.dumps(params, sort_keys=True, default=str)
 
 
+def _runner_fingerprint(runner):
+    fp = getattr(runner, 'fingerprint', None)
+    if callable(fp):
+        return fp()
+    return fp
+
+
 def _params_for(space, config):
     if config.algorithm == 'grid':
         return islice(grid_search.generate(space, config), config.max_trials)
@@ -201,7 +208,7 @@ def optimize(
         return walk_forward_run(space, runner, config, start=start, end=end)
     space_hash = space.fingerprint()
     config_hash = stable_hash(config.to_dict())
-    fingerprints = {'parameter_space_hash': space_hash, 'optimizer_config_hash': config_hash, 'data_fingerprint': None, 'runner_fingerprint': getattr(runner, 'fingerprint', None), 'engine_config_hash': None}
+    fingerprints = {'parameter_space_hash': space_hash, 'optimizer_config_hash': config_hash, 'data_fingerprint': None, 'runner_fingerprint': _runner_fingerprint(runner), 'engine_config_hash': None}
     store = _storage(config)
     check_resume(store, fingerprints, config.force_resume_on_fingerprint_mismatch)
     diagnostics: list[Diagnostic] = []
@@ -223,6 +230,20 @@ def optimize(
         if config.algorithm == 'grid' and space.cross_constraints:
             generated = 0
             for params, valid in space.iter_grid_with_validity():
+                if generated >= config.max_trials:
+                    break
+                tid = next_id; next_id += 1; generated += 1
+                ph = stable_hash(params)
+                if ph in done_hashes:
+                    continue
+                if valid:
+                    jobs.append((tid, params))
+                else:
+                    t = _skipped_trial(tid, params, config, space_hash, config_hash, 'cross-constraint expression rejected parameter combination')
+                    store.save_trial(t); trials.append(t)
+        elif config.algorithm == 'random' and space.cross_constraints:
+            generated = 0
+            for params, valid in random_search.generate_with_validity(space, config):
                 if generated >= config.max_trials:
                     break
                 tid = next_id; next_id += 1; generated += 1

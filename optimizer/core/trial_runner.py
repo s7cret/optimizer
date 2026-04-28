@@ -40,6 +40,10 @@ def _required_metrics(config):
     return reg.get_required_metrics(required)
 
 
+def _failed_trial(trial_id, params, metrics, direction, status, err, tr, diags, started, t0, space_hash, config_hash, is_baseline=False, baseline_name=None):
+    return Trial(trial_id, dict(params), metrics, None, direction, None, False, {}, 0, None, None, None, None, None, time.perf_counter() - t0, status, is_baseline=is_baseline, baseline_name=baseline_name, parameter_space_hash=space_hash, optimizer_config_hash=config_hash, code_version=__version__, error_message=err, traceback=tr, diagnostics=diags, missing_metrics=set(), started_at=started, finished_at=now_ms(), params_hash=stable_hash(params))
+
+
 def run_one(trial_id, params, runner, config, space_hash, config_hash, is_baseline=False, baseline_name=None):
     started = now_ms(); t0 = time.perf_counter(); diags = []; metrics = {}; raw = None
     params_hash = stable_hash(params)
@@ -49,6 +53,13 @@ def run_one(trial_id, params, runner, config, space_hash, config_hash, is_baseli
         caps = getattr(runner, 'capabilities', None)
         required = _required_metrics(config)
         outputs = MetricRegistry().get_required_outputs(required)
+        if caps and getattr(caps, 'supports_required_outputs', False):
+            supported_outputs = set(getattr(caps, 'supported_outputs', set()) or set())
+            missing_outputs = outputs - supported_outputs
+            if missing_outputs:
+                err = 'runner does not support required outputs: ' + ', '.join(sorted(missing_outputs))
+                diags.append(Diagnostic('RUNNER_REQUIRED_OUTPUT_UNSUPPORTED', err, 'error', trial_id, params_hash, context={'required_outputs': sorted(outputs), 'supported_outputs': sorted(supported_outputs), 'missing_outputs': sorted(missing_outputs)}))
+                return _failed_trial(trial_id, params, metrics, direction, 'failed', err, None, diags, started, t0, space_hash, config_hash, is_baseline, baseline_name)
         if caps and getattr(caps, 'supports_runner_request', False):
             req = RunnerRequest(params=params, trial_id=trial_id, required_metrics=required, required_outputs=outputs, early_stop_conditions=config.early_stop_conditions if config.early_stop_enabled else [], seed=config.seed if getattr(caps, 'supports_seed', False) else None)
             raw = _call_with_timeout(lambda: runner(req), config.timeout_per_trial_sec)
@@ -59,6 +70,11 @@ def run_one(trial_id, params, runner, config, space_hash, config_hash, is_baseli
         metrics = MetricExtractor().extract(raw)
         if 'return_drawdown_ratio' not in metrics and metrics.get('net_profit') is not None and metrics.get('max_drawdown'):
             metrics['return_drawdown_ratio'] = metrics['net_profit'] / abs(metrics['max_drawdown'])
+        missing_required = set(required) - set(metrics)
+        if caps and getattr(caps, 'supports_required_outputs', False) and missing_required:
+            err = 'runner response missing required metrics: ' + ', '.join(sorted(missing_required))
+            diags.append(Diagnostic('RUNNER_REQUIRED_METRICS_MISSING', err, 'error', trial_id, params_hash, context={'required_metrics': sorted(required), 'missing_metrics': sorted(missing_required)}))
+            return _failed_trial(trial_id, params, metrics, direction, 'failed', err, None, diags, started, t0, space_hash, config_hash, is_baseline, baseline_name)
         obj = compute_objective(metrics, config.objective, direction, config.objective_expression)
         c = evaluate_constraints(metrics, constraints, trial_id=trial_id, params_hash=params_hash)
         diags.extend(c.diagnostics)
@@ -76,4 +92,4 @@ def run_one(trial_id, params, runner, config, space_hash, config_hash, is_baseli
     except Exception as e:
         status = 'failed'; err = str(e); tr = traceback.format_exc()
         diags.append(Diagnostic('TRIAL_FAILED', err, 'error', trial_id, params_hash))
-    return Trial(trial_id, dict(params), metrics, None, direction, None, False, {}, 0, None, None, None, None, None, time.perf_counter() - t0, status, is_baseline=is_baseline, baseline_name=baseline_name, parameter_space_hash=space_hash, optimizer_config_hash=config_hash, code_version=__version__, error_message=err, traceback=tr, diagnostics=diags, missing_metrics=set(), started_at=started, finished_at=now_ms(), params_hash=params_hash)
+    return _failed_trial(trial_id, params, metrics, direction, status, err, tr, diags, started, t0, space_hash, config_hash, is_baseline, baseline_name)
