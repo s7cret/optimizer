@@ -1,1 +1,0 @@
-from optimizer.core.constraints import evaluate_constraints

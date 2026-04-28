@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 from typing import Any, Literal
+
+
 @dataclass(frozen=True)
 class Parameter:
     name: str
-    param_type: Literal['int','float','bool','string','enum']
+    param_type: Literal["int", "float", "bool", "string", "enum"]
     default: Any
     min_val: Any | None = None
     max_val: Any | None = None

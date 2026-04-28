@@ -12,7 +12,7 @@ class Diagnostic:
 
     code: str
     message: str
-    severity: Literal['info', 'warning', 'error'] = 'warning'
+    severity: Literal["info", "warning", "error"] = "warning"
     trial_id: int | None = None
     params_hash: str | None = None
     metric: str | None = None

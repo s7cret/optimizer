@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+
 class BacktestRunner(Protocol):
     def __call__(self, params: dict[str, Any]) -> Any: ...
+
 
 @dataclass(frozen=True)
 class RunnerRequest:
@@ -14,6 +16,7 @@ class RunnerRequest:
     range: tuple[int, int] | None = None
     seed: int | None = None
     tags: dict[str, str] = field(default_factory=dict)
+
 
 @dataclass(frozen=True)
 class RunnerCapabilities:
@@ -27,10 +30,13 @@ class RunnerCapabilities:
     supports_data_fingerprint: bool = False
     supports_engine_config_hash: bool = False
 
+
 class AdvancedBacktestRunner(Protocol):
     capabilities: RunnerCapabilities
+
     def __call__(self, request: RunnerRequest) -> Any: ...
+
 
 class RangeAwareBacktestRunner(Protocol):
     def __call__(self, params: dict[str, object]) -> object: ...
-    def with_range(self, start_time: int, end_time: int) -> 'RangeAwareBacktestRunner': ...
+    def with_range(self, start_time: int, end_time: int) -> "RangeAwareBacktestRunner": ...

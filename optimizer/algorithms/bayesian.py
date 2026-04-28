@@ -13,8 +13,11 @@ def _distance(a: dict[str, object], b: dict[str, object], space: Any) -> float:
     for p in space.parameters:
         av = a.get(p.name)
         bv = b.get(p.name)
-        if p.param_type in {'int', 'float'} and p.max_val != p.min_val:
-            total += ((float(cast(Any, av)) - float(cast(Any, bv))) / (float(cast(Any, p.max_val)) - float(cast(Any, p.min_val)))) ** 2
+        if p.param_type in {"int", "float"} and p.max_val != p.min_val:
+            total += (
+                (float(cast(Any, av)) - float(cast(Any, bv)))
+                / (float(cast(Any, p.max_val)) - float(cast(Any, p.min_val)))
+            ) ** 2
         else:
             total += 0.0 if av == bv else 1.0
     return math.sqrt(total)
@@ -38,7 +41,13 @@ def warmup(space: Any, config: Any) -> list[dict[str, object]]:
     return out
 
 
-def propose(space: Any, config: Any, evaluated: list[tuple[dict[str, object], float]], seen: set[str], iteration: int) -> dict[str, object] | None:
+def propose(
+    space: Any,
+    config: Any,
+    evaluated: list[tuple[dict[str, object], float]],
+    seen: set[str],
+    iteration: int,
+) -> dict[str, object] | None:
     rng = random.Random(config.seed + 10_000 + iteration)
     if not evaluated:
         return None
@@ -46,7 +55,7 @@ def propose(space: Any, config: Any, evaluated: list[tuple[dict[str, object], fl
     worst_score = min(score for _, score in evaluated)
     span = max(1e-12, best_score - worst_score)
     best_candidate: dict[str, object] | None = None
-    best_acq = -float('inf')
+    best_acq = -float("inf")
     for _ in range(256):
         params = space.random_sample(rng)
         if not space.is_valid_combination(params):
@@ -56,7 +65,7 @@ def propose(space: Any, config: Any, evaluated: list[tuple[dict[str, object], fl
             continue
         weighted = 0.0
         weight_sum = 0.0
-        nearest = float('inf')
+        nearest = float("inf")
         for prev, score in evaluated:
             dist = _distance(params, prev, space)
             nearest = min(nearest, dist)

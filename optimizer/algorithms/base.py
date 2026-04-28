@@ -1,2 +1,3 @@
 class SearchAlgorithm:
-    def generate(self, space, config): raise NotImplementedError
+    def generate(self, space, config):
+        raise NotImplementedError

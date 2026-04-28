@@ -11,13 +11,17 @@ def _values(space: Any) -> dict[str, list[object]]:
     return {p.name: list(space.values_for(p)) for p in space.parameters}
 
 
-def crossover(a: dict[str, object], b: dict[str, object], rng: random.Random, rate: float) -> dict[str, object]:
+def crossover(
+    a: dict[str, object], b: dict[str, object], rng: random.Random, rate: float
+) -> dict[str, object]:
     if rng.random() > rate:
         return dict(a)
     return {k: (a[k] if rng.random() < 0.5 else b[k]) for k in a}
 
 
-def mutate(child: dict[str, object], values: dict[str, list[object]], rng: random.Random, rate: float) -> dict[str, object]:
+def mutate(
+    child: dict[str, object], values: dict[str, list[object]], rng: random.Random, rate: float
+) -> dict[str, object]:
     out = dict(child)
     for name, vals in values.items():
         if vals and rng.random() < rate:
@@ -25,14 +29,16 @@ def mutate(child: dict[str, object], values: dict[str, list[object]], rng: rando
     return out
 
 
-def select(population: list[tuple[dict[str, object], float]], rng: random.Random, mode: str) -> dict[str, object]:
+def select(
+    population: list[tuple[dict[str, object], float]], rng: random.Random, mode: str
+) -> dict[str, object]:
     if not population:
-        raise ValueError('empty genetic population')
-    if mode == 'roulette':
+        raise ValueError("empty genetic population")
+    if mode == "roulette":
         lo = min(score for _, score in population)
         weights = [max(0.0, score - lo) + 1e-12 for _, score in population]
         return dict(rng.choices([p for p, _ in population], weights=weights, k=1)[0])
-    if mode == 'rank':
+    if mode == "rank":
         ranked = sorted(population, key=lambda x: x[1])
         weights = list(range(1, len(ranked) + 1))
         return dict(rng.choices([p for p, _ in ranked], weights=weights, k=1)[0])
@@ -58,7 +64,13 @@ def initial_population(space: Any, config: Any) -> list[dict[str, object]]:
     return pop
 
 
-def next_generation(space: Any, config: Any, evaluated: list[tuple[dict[str, object], float]], seen: set[str], generation: int) -> list[dict[str, object]]:
+def next_generation(
+    space: Any,
+    config: Any,
+    evaluated: list[tuple[dict[str, object], float]],
+    seen: set[str],
+    generation: int,
+) -> list[dict[str, object]]:
     rng = random.Random(config.seed + generation + 1)
     vals = _values(space)
     ranked = sorted(evaluated, key=lambda x: x[1], reverse=True)
@@ -70,7 +82,12 @@ def next_generation(space: Any, config: Any, evaluated: list[tuple[dict[str, obj
         attempts += 1
         a = select(ranked, rng, config.genetic_selection)
         b = select(ranked, rng, config.genetic_selection)
-        child = mutate(crossover(a, b, rng, config.genetic_crossover_rate), vals, rng, config.genetic_mutation_rate)
+        child = mutate(
+            crossover(a, b, rng, config.genetic_crossover_rate),
+            vals,
+            rng,
+            config.genetic_mutation_rate,
+        )
         child = space.clamp(child)
         if not space.is_valid_combination(child):
             continue

@@ -18,5 +18,7 @@ def runner(params: dict[str, float]) -> dict[str, float]:
 
 if __name__ == "__main__":
     params = [Parameter("x", "int", 1, 1, 5, 1), Parameter("y", "int", 1, 1, 4, 1)]
-    result = optimize(params, runner, OptimizerConfig(max_trials=20, output_dir=Path("example_results")))
+    result = optimize(
+        params, runner, OptimizerConfig(max_trials=20, output_dir=Path("example_results"))
+    )
     print(result.recommended_profile, result.recommended_trial.params)
