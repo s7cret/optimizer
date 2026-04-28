@@ -16,15 +16,18 @@ result = optimize(params, runner, OptimizerConfig(algorithm='grid', max_trials=2
 print(result.recommended_trial.params)
 ```
 
-## Implemented MVP
+## Implemented
 
 - Parameter/ParameterSpace validation, grid/random/adaptive-grid generation, safe AST cross constraints.
 - MetricExtractor and MetricRegistry with required metric/output awareness.
 - Trial/OptimizerResult/Profile models, objective scoring, constraints, balanced ranking, leaderboard, Pareto front/knee.
 - Runner boundary with basic and advanced `RunnerRequest` protocols and diagnostics when basic runners cannot receive hints.
 - SQLite/JSON persistence, run fingerprints and force-resume guard.
-- JSON/CSV/Markdown reports and CLI skeleton.
+- JSON/CSV/Markdown reports, diff report, and plot export (HTML always; PNG/SVG when optional matplotlib is installed).
+- Native sequential `genetic` and dependency-free surrogate `bayesian` optimizers.
+- Range-aware walk-forward execution via `optimizer.algorithms.walk_forward.run()` for runners that support `RunnerRequest.range` or `with_range(start, end)`.
+- Advanced analyses: neighborhood robustness, sensitivity/parameter importance, train/test overfitting gap, profit concentration, trade bootstrap Monte Carlo, heatmap and walk-forward summaries.
 
-## Full-scope diagnostics/placeholders
+## Graceful degradation
 
-Bayesian, genetic, walk-forward, advanced robustness/overfitting/profit-concentration/plot/diff commands are explicit placeholders that raise or report diagnostics rather than silently pretending completion.
+Optional/data-dependent features return structured `status`/`diagnostics` instead of pretending success: image plots need matplotlib, trade analyses need saved trade lists, and walk-forward needs a range-aware runner. The package remains independent of concrete Pine/backtest engine implementations.

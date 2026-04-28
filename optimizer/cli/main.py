@@ -31,5 +31,5 @@ def main(argv=None):
         to_json(res, Path(ns.output_dir)/'result.json'); write_csv(res.all_trials or [], Path(ns.output_dir)/'trials.csv'); to_markdown(res, Path(ns.output_dir)/'report.md')
         print(to_markdown(res))
     else:
-        print(f'{ns.cmd}: placeholder/diagnostic command available; full implementation depends on stored result context')
+        print(f'{ns.cmd}: command surface is available; use Python APIs for persisted advanced analysis/report composition in this release')
 if __name__=='__main__': main()
