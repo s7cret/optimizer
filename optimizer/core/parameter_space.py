@@ -1,0 +1,98 @@
+from decimal import Decimal
+from itertools import product
+import random
+from dataclasses import asdict
+from typing import Any, cast
+from optimizer.core.parameter import Parameter
+from optimizer.core.diagnostic import Diagnostic
+from optimizer.core.expression import safe_eval, stable_hash
+from optimizer.errors import ParameterValidationError, SafeExpressionError
+
+class ParameterSpace:
+    def __init__(self, parameters: list[Parameter], cross_constraints: list[str] | None = None) -> None:
+        self.parameters = parameters
+        self.cross_constraints = cross_constraints or []
+        self._by_name = {p.name:p for p in parameters}
+        self.validate()
+    def validate(self) -> None:
+        names=[p.name for p in self.parameters]
+        if len(names)!=len(set(names)): raise ParameterValidationError('duplicate parameter names')
+        for p in self.parameters:
+            if not p.name or not p.name.replace('_','').isalnum(): raise ParameterValidationError(f'invalid parameter name {p.name}')
+            if p.param_type in {'int','float'} and p.enabled and (p.min_val is None or p.max_val is None or p.step is None):
+                raise ParameterValidationError(f'{p.name} requires min_val/max_val/step')
+            if p.param_type in {'enum','string'} and p.enabled and not p.options:
+                raise ParameterValidationError(f'{p.name} requires options')
+            if p.param_type=='bool' and p.default not in {True,False}: raise ParameterValidationError(f'{p.name} bool default invalid')
+    def values_for(self,p:Parameter):
+        if not p.enabled: return [p.default]
+        if p.param_type=='bool': return [False, True]
+        if p.param_type in {'enum','string'}: return list(p.options or [p.default])
+        vals=[]; x=Decimal(str(p.min_val)); end=Decimal(str(p.max_val)); step=Decimal(str(p.step))
+        if step<=0: raise ParameterValidationError(f'{p.name} step must be positive')
+        while x <= end:
+            vals.append(int(x) if p.param_type=='int' else float(x)); x += step
+        return vals
+    def grid_size(self)->int:
+        n=1
+        for p in self.parameters: n*=len(self.values_for(p))
+        return n
+    def generate_grid(self, max_combinations:int|None=None):
+        count=0
+        for vals in product(*[self.values_for(p) for p in self.parameters]):
+            params={p.name:v for p,v in zip(self.parameters, vals)}
+            if self.is_valid_combination(params):
+                yield params; count+=1
+                if max_combinations and count>=max_combinations: return
+    def random_sample(self, rng: random.Random)->dict[str,object]:
+        return {p.name: rng.choice(self.values_for(p)) for p in self.parameters}
+    def clamp(self, params:dict[str,object])->dict[str,object]:
+        out={}
+        for p in self.parameters:
+            v=params.get(p.name,p.default)
+            if not p.enabled: v=p.default
+            elif p.param_type in {'int','float'}:
+                lo = float(cast(Any, p.min_val))  # validated non-None for enabled numeric params
+                hi = float(cast(Any, p.max_val))
+                v = max(lo, min(hi, float(cast(Any, v))))
+                if p.param_type=='int': v=int(round(v))
+            elif p.param_type=='bool': v=bool(v)
+            elif p.options and v not in p.options: v=p.default
+            out[p.name]=v
+        return out
+    def validate_params(self, params):
+        ds=[]
+        for p in self.parameters:
+            if p.name not in params: ds.append(Diagnostic('PARAM_MISSING','error',f'{p.name} missing')); continue
+            v=params[p.name]
+            if p.param_type=='int' and not isinstance(v,int): ds.append(Diagnostic('PARAM_TYPE','error',f'{p.name} not int'))
+            if p.param_type=='float' and not isinstance(v,(int,float)): ds.append(Diagnostic('PARAM_TYPE','error',f'{p.name} not float'))
+            if p.param_type=='bool' and not isinstance(v,bool): ds.append(Diagnostic('PARAM_TYPE','error',f'{p.name} not bool'))
+            if p.options and v not in p.options: ds.append(Diagnostic('PARAM_OPTION','error',f'{p.name} not allowed'))
+        return ds
+    def is_valid_combination(self, params):
+        try: return all(bool(safe_eval(expr, params)) for expr in self.cross_constraints)
+        except Exception: return False
+    def neighbors(self, params, radius_steps:int=1):
+        out=[]
+        value_lists={p.name:self.values_for(p) for p in self.parameters}
+        for p in self.parameters:
+            vals=value_lists[p.name]
+            if params.get(p.name) not in vals: continue
+            idx=vals.index(params[p.name])
+            for j in range(max(0,idx-radius_steps), min(len(vals),idx+radius_steps+1)):
+                if j==idx: continue
+                q=dict(params); q[p.name]=vals[j]
+                if self.is_valid_combination(q): out.append(q)
+        return out
+    def refine_around(self, center_params, refinement_factor:float, min_step:dict[str,float]|None=None):
+        candidates=[dict(center_params)]; min_step=min_step or {}
+        for p in self.parameters:
+            if p.param_type not in {'int','float'} or not p.enabled: continue
+            step=max(float(p.step or 0)*refinement_factor, float(min_step.get(p.name,0)))
+            for delta in (-step, step):
+                q=dict(center_params); q[p.name]=q[p.name]+delta; q=self.clamp(q)
+                if self.is_valid_combination(q): candidates.append(q)
+        return candidates
+    def fingerprint(self):
+        return stable_hash({'parameters':[asdict(p) for p in self.parameters], 'cross_constraints':self.cross_constraints})
