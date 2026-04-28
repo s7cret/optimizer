@@ -6,6 +6,7 @@ from optimizer.protocols import (
     RangeAwareBacktestRunner,
     RunnerCapabilities,
     RunnerRequest,
+    RunnerResponse,
 )
 from optimizer.core.parameter import Parameter
 from optimizer.core.parameter_space import ParameterSpace
@@ -16,6 +17,7 @@ from optimizer.results.trial import Trial
 from optimizer.results.profile_result import ResultProfile
 from optimizer.results.result import OptimizerResult
 from optimizer.optimizer import optimize
+from optimizer.runners.backtest_engine import BacktestEngineRunnerAdapter
 
 __all__ = [
     "__version__",
@@ -25,6 +27,7 @@ __all__ = [
     "RangeAwareBacktestRunner",
     "RunnerCapabilities",
     "RunnerRequest",
+    "RunnerResponse",
     "Parameter",
     "ParameterSpace",
     "MetricExtractor",
@@ -35,4 +38,5 @@ __all__ = [
     "ResultProfile",
     "OptimizerResult",
     "optimize",
+    "BacktestEngineRunnerAdapter",
 ]

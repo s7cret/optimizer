@@ -16,6 +16,19 @@ class RunnerRequest:
     range: tuple[int, int] | None = None
     seed: int | None = None
     tags: dict[str, str] = field(default_factory=dict)
+    fingerprints: dict[str, str] = field(default_factory=dict)
+    contract: str = "pain.optimizer_runner.v1"
+
+
+@dataclass(frozen=True)
+class RunnerResponse:
+    contract: str = "pain.optimizer_runner.v1"
+    metrics: dict[str, float] = field(default_factory=dict)
+    raw_result: Any | None = None
+    hashes: dict[str, str] = field(default_factory=dict)
+    trades_available: bool = False
+    equity_available: bool = False
+    diagnostics: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

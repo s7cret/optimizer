@@ -3,6 +3,8 @@ import time
 import traceback
 
 from optimizer.protocols import RunnerRequest
+
+RUNNER_CONTRACT = "pain.optimizer_runner.v1"
 from optimizer.core.metric_extractor import MetricExtractor
 from optimizer.core.metric_registry import MetricRegistry
 from optimizer.core.constraints import evaluate_constraints, merge_constraints
@@ -42,6 +44,55 @@ def _required_metrics(config):
             ["best_profit", "best_drawdown", "best_profit_factor", "best_sharpe", "best_balanced"]
         )
     return reg.get_required_metrics(required)
+
+
+def _response_field(raw, name, default=None):
+    if isinstance(raw, dict):
+        return raw.get(name, default)
+    return getattr(raw, name, default)
+
+
+def _response_hash(raw, name):
+    hashes = _response_field(raw, "hashes", {}) or {}
+    if isinstance(hashes, dict) and name in hashes:
+        return hashes[name]
+    return getattr(raw, name, None) if raw is not None else None
+
+
+def _response_diagnostics(raw, trial_id, params_hash):
+    out = []
+    for item in _response_field(raw, "diagnostics", []) or []:
+        if isinstance(item, Diagnostic):
+            out.append(item)
+            continue
+        if isinstance(item, dict):
+            out.append(
+                Diagnostic(
+                    str(item.get("code", "RUNNER_DIAGNOSTIC")),
+                    str(item.get("message", "runner diagnostic")),
+                    str(item.get("severity", "warning")),
+                    trial_id,
+                    params_hash,
+                    context=item.get("context", {}),
+                )
+            )
+    return out
+
+
+def _normalize_runner_response(raw, trial_id, params_hash):
+    contract = _response_field(raw, "contract")
+    has_response_shape = contract is not None or _response_field(raw, "metrics") is not None
+    if contract is not None and contract != RUNNER_CONTRACT:
+        raise ValueError(f"runner response contract mismatch: {contract!r} != {RUNNER_CONTRACT!r}")
+    if not has_response_shape:
+        return raw, {}, {}
+    metrics = _response_field(raw, "metrics", {}) or {}
+    if not isinstance(metrics, dict):
+        raise ValueError("runner response metrics must be a dict")
+    hashes = _response_field(raw, "hashes", {}) or {}
+    if hashes is not None and not isinstance(hashes, dict):
+        raise ValueError("runner response hashes must be a dict")
+    return metrics, dict(hashes or {}), {"diagnostics": _response_diagnostics(raw, trial_id, params_hash)}
 
 
 def _failed_trial(
@@ -154,6 +205,10 @@ def run_one(
                 if config.early_stop_enabled
                 else [],
                 seed=config.seed if getattr(caps, "supports_seed", False) else None,
+                fingerprints={
+                    "parameter_space_hash": space_hash,
+                    "optimizer_config_hash": config_hash,
+                },
             )
             raw = _call_with_timeout(lambda: runner(req), config.timeout_per_trial_sec)
         else:
@@ -168,7 +223,52 @@ def run_one(
                     )
                 )
             raw = _call_with_timeout(lambda: runner(params), config.timeout_per_trial_sec)
-        metrics = MetricExtractor().extract(raw)
+        metrics_source, response_hashes, response_meta = _normalize_runner_response(
+            raw, trial_id, params_hash
+        )
+        diags.extend(response_meta.get("diagnostics", []))
+        unavailable_outputs = set()
+        if outputs and _response_field(raw, "contract") == RUNNER_CONTRACT:
+            if "closed_trades" in outputs and not bool(_response_field(raw, "trades_available", False)):
+                unavailable_outputs.add("closed_trades")
+            if "equity_curve" in outputs and not bool(_response_field(raw, "equity_available", False)):
+                unavailable_outputs.add("equity_curve")
+            if "summary_metrics" in outputs and not bool(_response_field(raw, "metrics", {})):
+                unavailable_outputs.add("summary_metrics")
+        if caps and getattr(caps, "supports_required_outputs", False) and unavailable_outputs:
+            err = "runner response missing required outputs: " + ", ".join(
+                sorted(unavailable_outputs)
+            )
+            diags.append(
+                Diagnostic(
+                    "RUNNER_REQUIRED_OUTPUT_MISSING",
+                    err,
+                    "error",
+                    trial_id,
+                    params_hash,
+                    context={
+                        "required_outputs": sorted(outputs),
+                        "missing_outputs": sorted(unavailable_outputs),
+                    },
+                )
+            )
+            return _failed_trial(
+                trial_id,
+                params,
+                metrics,
+                direction,
+                "failed",
+                err,
+                None,
+                diags,
+                started,
+                t0,
+                space_hash,
+                config_hash,
+                is_baseline,
+                baseline_name,
+            )
+        metrics = MetricExtractor().extract(metrics_source)
         if (
             "return_drawdown_ratio" not in metrics
             and metrics.get("net_profit") is not None
@@ -248,10 +348,10 @@ def run_one(
             False,
             is_baseline,
             baseline_name,
-            getattr(raw, "content_hash", None) if raw is not None else None,
-            getattr(raw, "data_fingerprint", None) if raw is not None else None,
-            getattr(raw, "runner_fingerprint", None) if raw is not None else None,
-            getattr(raw, "engine_config_hash", None) if raw is not None else None,
+            _response_hash(raw, "content_hash"),
+            _response_hash(raw, "data_fingerprint"),
+            _response_hash(raw, "runner_fingerprint"),
+            _response_hash(raw, "engine_config_hash"),
             space_hash,
             config_hash,
             __version__,
