@@ -16,6 +16,9 @@ from optimizer.core.diagnostic import Diagnostic
 from optimizer.errors import UnsupportedFeatureError
 
 
+SUPPORTED_OPTIMIZE_ALGORITHMS = {'grid', 'random', 'adaptive_grid', 'genetic', 'bayesian', 'walk_forward'}
+
+
 def _storage(config):
     return JsonStorage(config.output_dir) if config.storage_backend == 'json' else SQLiteStorage(config.output_dir)
 
@@ -31,7 +34,10 @@ def _params_for(space, config):
         return list(random_search.generate(space, config))[: config.max_trials]
     if config.algorithm == 'adaptive_grid':
         return list(adaptive_grid.initial(space, config))[: config.max_trials]
-    raise UnsupportedFeatureError(f'{config.algorithm} requires sequential optimizer integration')
+    raise UnsupportedFeatureError(
+        f"Unknown optimizer algorithm {config.algorithm!r}; supported values are "
+        f"{', '.join(sorted(SUPPORTED_OPTIMIZE_ALGORITHMS))}"
+    )
 
 
 def _run_jobs(jobs, runner, config, space_hash, config_hash, store):
@@ -112,7 +118,10 @@ def _sequential_advanced(space, runner, config, space_hash, config_hash, store, 
             trials.extend(batch)
             evaluated.extend((t.params, float(t.objective_value)) for t in batch if t.status == 'completed' and t.objective_value is not None)
         return trials, next_id
-    raise UnsupportedFeatureError(f'{config.algorithm} is unsupported by optimize(); use algorithms.walk_forward.run for walk-forward')
+    raise UnsupportedFeatureError(
+        f"Unknown optimizer algorithm {config.algorithm!r}; supported values are "
+        f"{', '.join(sorted(SUPPORTED_OPTIMIZE_ALGORITHMS))}"
+    )
 
 
 def _analysis(config, trials, space):
@@ -135,7 +144,15 @@ def _analysis(config, trials, space):
     return out
 
 
-def optimize(parameters, runner, config: OptimizerConfig | None = None, *, cross_constraints=None):
+def optimize(
+    parameters,
+    runner,
+    config: OptimizerConfig | None = None,
+    *,
+    cross_constraints=None,
+    start: int | None = None,
+    end: int | None = None,
+):
     config = config or OptimizerConfig()
     config.output_dir = Path(config.output_dir)
     config.output_dir.mkdir(parents=True, exist_ok=True)
@@ -143,6 +160,13 @@ def optimize(parameters, runner, config: OptimizerConfig | None = None, *, cross
         space = parameters
     else:
         space = ParameterSpace(parameters, cross_constraints if cross_constraints is not None else config.cross_constraints)
+    if config.algorithm == 'walk_forward':
+        if start is None or end is None:
+            raise ValueError('walk_forward optimize() requires explicit start=... and end=... range bounds')
+        if end <= start:
+            raise ValueError('walk_forward optimize() requires end > start')
+        from optimizer.algorithms.walk_forward import run as walk_forward_run
+        return walk_forward_run(space, runner, config, start=start, end=end)
     space_hash = space.fingerprint()
     config_hash = stable_hash(config.to_dict())
     fingerprints = {'parameter_space_hash': space_hash, 'optimizer_config_hash': config_hash, 'data_fingerprint': None, 'runner_fingerprint': getattr(runner, 'fingerprint', None), 'engine_config_hash': None}
@@ -159,8 +183,6 @@ def optimize(parameters, runner, config: OptimizerConfig | None = None, *, cross
     if config.algorithm in {'genetic', 'bayesian'}:
         advanced, next_id = _sequential_advanced(space, runner, config, space_hash, config_hash, store, next_id)
         trials.extend(advanced)
-    elif config.algorithm == 'walk_forward':
-        raise UnsupportedFeatureError('walk_forward uses optimizer.algorithms.walk_forward.run(parameters, runner, config, start=..., end=...)')
     else:
         params_list = _params_for(space, config)
         jobs = []

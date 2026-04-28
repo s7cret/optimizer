@@ -24,8 +24,8 @@ print(result.recommended_trial.params)
 - Runner boundary with basic and advanced `RunnerRequest` protocols and diagnostics when basic runners cannot receive hints.
 - SQLite/JSON persistence, run fingerprints and force-resume guard.
 - JSON/CSV/Markdown reports, diff report, and plot export (HTML always; PNG/SVG when optional matplotlib is installed).
-- Native sequential `genetic` and dependency-free surrogate `bayesian` optimizers.
-- Range-aware walk-forward execution via `optimizer.algorithms.walk_forward.run()` for runners that support `RunnerRequest.range` or `with_range(start, end)`.
+- Public `optimize()` routing for `grid`, `random`, `adaptive_grid`, native sequential `genetic`, and dependency-free surrogate `bayesian` optimizers.
+- Range-aware walk-forward execution through `optimize(..., OptimizerConfig(algorithm='walk_forward'), start=..., end=...)` (or `optimizer.algorithms.walk_forward.run()`) for runners that support `RunnerRequest.range` or `with_range(start, end)`.
 - Advanced analyses: neighborhood robustness, sensitivity/parameter importance, train/test overfitting gap, profit concentration, trade bootstrap Monte Carlo, heatmap and walk-forward summaries.
 
 ## Graceful degradation
