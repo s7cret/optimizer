@@ -1,4 +1,5 @@
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from optimizer.config import OptimizerConfig
 from optimizer.core.parameter_space import ParameterSpace
 from optimizer.core.trial_runner import run_one
@@ -34,12 +35,26 @@ def optimize(parameters, runner, config:OptimizerConfig|None=None, *, cross_cons
     if config.baseline_params and config.run_baseline_first and 0 not in done_ids:
         t=run_one(0, config.baseline_params, runner, config, space_hash, config_hash, True, config.baseline_name); store.save_trial(t); trials.append(t)
     params_list=_params_for(space,config)
+    jobs=[]
     for params in params_list:
         tid=next_id; next_id+=1
-        if tid in done_ids: continue
-        t=run_one(tid, params, runner, config, space_hash, config_hash); store.save_trial(t); trials.append(t)
-        if config.fail_fast and t.status!='completed': break
-        if config.max_failed_trials is not None and sum(1 for x in trials if x.status!='completed')>=config.max_failed_trials: break
+        if tid not in done_ids: jobs.append((tid, params))
+    if config.max_parallel > 1:
+        if config.parallel_backend == 'process':
+            # User runners are often closures/non-picklable. Use threads to preserve the protocol boundary.
+            pass
+        with ThreadPoolExecutor(max_workers=config.max_parallel) as ex:
+            future_map={ex.submit(run_one, tid, params, runner, config, space_hash, config_hash): tid for tid, params in jobs}
+            iterator=[f for f in future_map] if config.ordered_results else as_completed(future_map)
+            for f in iterator:
+                t=f.result(); store.save_trial(t); trials.append(t)
+                if config.fail_fast and t.status!='completed': break
+                if config.max_failed_trials is not None and sum(1 for x in trials if x.status!='completed')>=config.max_failed_trials: break
+    else:
+        for tid, params in jobs:
+            t=run_one(tid, params, runner, config, space_hash, config_hash); store.save_trial(t); trials.append(t)
+            if config.fail_fast and t.status!='completed': break
+            if config.max_failed_trials is not None and sum(1 for x in trials if x.status!='completed')>=config.max_failed_trials: break
     if config.algorithm=='adaptive_grid' and trials:
         for p in adaptive_grid.refine(space,trials,config):
             if len(trials)>=config.max_trials: break

@@ -12,6 +12,12 @@ from optimizer.version import __version__
 
 def now_ms(): return int(time.time()*1000)
 
+def _call_with_timeout(fn, timeout):
+    if timeout is None or timeout <= 0:
+        return fn()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(fn).result(timeout=timeout)
+
 def run_one(trial_id, params, runner, config, space_hash, config_hash, is_baseline=False, baseline_name=None):
     started=now_ms(); t0=time.perf_counter(); diags=[]; metrics={}; raw=None
     direction=objective_direction(config.objective, config.objective_direction)
@@ -23,10 +29,10 @@ def run_one(trial_id, params, runner, config, space_hash, config_hash, is_baseli
         outputs=MetricRegistry().required_outputs(required)
         if caps and getattr(caps,'supports_runner_request',False):
             req=RunnerRequest(params=params, trial_id=trial_id, required_metrics=required, required_outputs=outputs, early_stop_conditions=config.early_stop_conditions if config.early_stop_enabled else [], seed=config.seed if getattr(caps,'supports_seed',False) else None)
-            raw=runner(req)
+            raw=_call_with_timeout(lambda: runner(req), config.timeout_per_trial_sec)
         else:
             if outputs or config.early_stop_enabled: diags.append(Diagnostic('BASIC_RUNNER_CONTRACT_USED','warning','runner called with params only; advanced hints unavailable', trial_id=trial_id))
-            raw=runner(params)
+            raw=_call_with_timeout(lambda: runner(params), config.timeout_per_trial_sec)
         metrics=MetricExtractor().extract(raw)
         if 'return_drawdown_ratio' not in metrics and metrics.get('net_profit') is not None and metrics.get('max_drawdown'):
             metrics['return_drawdown_ratio']=metrics['net_profit']/abs(metrics['max_drawdown'])

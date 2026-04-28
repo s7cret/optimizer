@@ -15,3 +15,9 @@ def test_advanced_runner_request(tmp_path):
             return {'net_profit': req.params['x'], 'max_drawdown_percent': 1}
     res=optimize([Parameter('x','int',1,1,1,1)], R(), OptimizerConfig(output_dir=tmp_path, storage_backend='json'))
     assert res.best_trial.id==1
+
+def test_parallel_thread_execution(tmp_path):
+    def runner(p): return {'net_profit': p['x'], 'max_drawdown_percent': 1}
+    cfg=OptimizerConfig(output_dir=tmp_path, storage_backend='json', max_parallel=2, max_trials=4)
+    res=optimize([Parameter('x','int',1,1,4,1)], runner, cfg)
+    assert res.trials_count_by_status['completed']==4
