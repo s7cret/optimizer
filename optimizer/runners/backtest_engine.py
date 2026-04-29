@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, is_dataclass
+import math
 from typing import Any
 
 from optimizer.protocols import RunnerCapabilities, RunnerRequest, RunnerResponse
@@ -16,9 +17,12 @@ def _metric_dict(result: Any, required: set[str]) -> dict[str, float]:
         if value is None or isinstance(value, bool):
             continue
         try:
-            metrics[name] = float(value)
+            metric = float(value)
         except (TypeError, ValueError):
             continue
+        if not math.isfinite(metric):
+            continue
+        metrics[name] = metric
     return metrics
 
 
@@ -55,7 +59,10 @@ def _fingerprint_result(result: Any) -> dict[str, str]:
 
 def _diagnostics(result: Any) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    for severity, items in (("warning", getattr(result, "warnings", []) or []), ("error", getattr(result, "errors", []) or [])):
+    for severity, items in (
+        ("warning", getattr(result, "warnings", []) or []),
+        ("error", getattr(result, "errors", []) or []),
+    ):
         for item in items:
             if is_dataclass(item):
                 payload = asdict(item)
@@ -118,16 +125,32 @@ class BacktestEngineRunnerAdapter:
         result = engine.run(self.strategy, bars=self.bars, params=params)
         hashes = {**request.fingerprints, **_fingerprint_result(result)}
         diagnostics = _diagnostics(result)
+        metrics = _metric_dict(result, set(request.required_metrics))
+        for name in set(request.required_metrics) - set(metrics):
+            value = getattr(result, name, None)
+            if value is None and isinstance(result, dict):
+                value = result.get(name)
+            if value is not None:
+                diagnostics.append(
+                    {
+                        "code": "BACKTEST_ENGINE_BAD_METRIC_VALUE",
+                        "message": f"metric {name!r} is not a finite numeric value",
+                        "severity": "error",
+                        "context": {"metric": name, "value_type": type(value).__name__},
+                    }
+                )
         if getattr(result, "status", "completed") != "completed":
             diagnostics.append(
                 {
                     "code": "BACKTEST_ENGINE_RUN_NOT_COMPLETED",
-                    "message": f"BacktestEngine returned status={getattr(result, 'status', None)!r}",
+                    "message": (
+                        f"BacktestEngine returned status={getattr(result, 'status', None)!r}"
+                    ),
                     "severity": "error",
                 }
             )
         return RunnerResponse(
-            metrics=_metric_dict(result, set(request.required_metrics)),
+            metrics=metrics,
             raw_result=result,
             hashes=hashes,
             trades_available=getattr(result, "closed_trades", None) is not None,

@@ -227,6 +227,27 @@ def run_one(
             raw, trial_id, params_hash
         )
         diags.extend(response_meta.get("diagnostics", []))
+        runner_errors = [d for d in diags if getattr(d, "severity", None) == "error"]
+        if runner_errors:
+            err = "runner returned error diagnostics: " + "; ".join(
+                f"{d.code}: {d.message}" for d in runner_errors
+            )
+            return _failed_trial(
+                trial_id,
+                params,
+                metrics,
+                direction,
+                "failed",
+                err,
+                None,
+                diags,
+                started,
+                t0,
+                space_hash,
+                config_hash,
+                is_baseline,
+                baseline_name,
+            )
         unavailable_outputs = set()
         if outputs and _response_field(raw, "contract") == RUNNER_CONTRACT:
             if "closed_trades" in outputs and not bool(_response_field(raw, "trades_available", False)):

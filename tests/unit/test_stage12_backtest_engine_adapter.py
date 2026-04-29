@@ -79,5 +79,6 @@ def test_backtest_engine_runner_adapter_failed_status_is_diagnostic(tmp_path):
     res = optimize([Parameter("x", "int", 1, 1, 1, 1)], adapter, cfg(tmp_path))
     trial = res.all_trials[0]
 
-    assert trial.status == "completed"
+    assert trial.status == "failed"
+    assert trial.error_message and "BACKTEST_ENGINE_RUN_NOT_COMPLETED" in trial.error_message
     assert any(d.code == "BACKTEST_ENGINE_RUN_NOT_COMPLETED" for d in trial.diagnostics)
