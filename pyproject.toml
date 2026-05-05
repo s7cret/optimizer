@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "optimizer"
-version = "0.1.0"
+version = "2.17.0"
 description = "Independent parameter optimizer for strategy backtest runners"
 readme = "README.md"
 requires-python = ">=3.11"
