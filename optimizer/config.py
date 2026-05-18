@@ -71,6 +71,9 @@ class OptimizerConfig:
     walk_forward_windows: int = 4
     walk_forward_train_ratio: float = 0.7
     walk_forward_anchor_mode: Literal["rolling", "expanding"] = "rolling"
+    # D5-F: walk-forward prehistory options
+    walk_forward_include_prehistory: bool = False  # opt-in pre-bars before each test window
+    walk_forward_pre_bars: int | None = None  # number of pre-bars to fetch before test window
     early_stop_enabled: bool = False
     early_stop_conditions: list[dict] = field(default_factory=list)
     include_early_stopped_in_recommendations: bool = False

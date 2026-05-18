@@ -122,7 +122,20 @@ class BacktestEngineRunnerAdapter:
             )
         params = {**self.static_params, **request.params}
         engine = self.engine_factory()
-        result = engine.run(self.strategy, bars=self.bars, params=params)
+        # D5-F: support effective_pre_bars via static_params (only if engine supports it)
+        effective_pre_bars = self.static_params.get('_effective_pre_bars')
+        if effective_pre_bars is not None:
+            import inspect
+            try:
+                sig = inspect.signature(engine.run)
+                if 'effective_pre_bars' in sig.parameters:
+                    result = engine.run(self.strategy, bars=self.bars, params=params, effective_pre_bars=effective_pre_bars)
+                else:
+                    result = engine.run(self.strategy, bars=self.bars, params=params)
+            except (ValueError, TypeError):
+                result = engine.run(self.strategy, bars=self.bars, params=params)
+        else:
+            result = engine.run(self.strategy, bars=self.bars, params=params)
         hashes = {**request.fingerprints, **_fingerprint_result(result)}
         diagnostics = _diagnostics(result)
         metrics = _metric_dict(result, set(request.required_metrics))
