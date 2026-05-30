@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-from optimizer import OptimizerConfig, Parameter, optimize
+from optimizer import OptimizerConfig, Parameter, dry_run_validate, optimize
 from optimizer.reporting.csv_report import write_csv
 from optimizer.reporting.json_report import to_json
 from optimizer.reporting.markdown_report import to_markdown
@@ -23,7 +23,8 @@ def load_obj(spec):
 
 def load_params(path):
     data = json.loads(Path(path).read_text())
-    return [Parameter(**p) for p in data.get("parameters", data)]
+    rows = data.get("parameters", data) if isinstance(data, dict) else data
+    return [Parameter(**p) for p in rows]
 
 
 def _storage(result_dir):
@@ -90,6 +91,9 @@ def main(argv=None):
     run.add_argument("--algorithm", default="grid")
     run.add_argument("--objective", default="net_profit")
     run.add_argument("--max-trials", type=int, default=1000)
+    dry = sub.add_parser("dry-run")
+    dry.add_argument("--params", required=True)
+    dry.add_argument("--output-dir", default="./optimizer_results")
     analyze = sub.add_parser("analyze")
     analyze.add_argument("--result-dir", default="./optimizer_results")
     exp = sub.add_parser("export")
@@ -119,6 +123,16 @@ def main(argv=None):
         write_csv(res.all_trials or [], Path(ns.output_dir) / "trials.csv")
         to_markdown(res, Path(ns.output_dir) / "report.md")
         print(to_markdown(res))
+    elif ns.cmd == "dry-run":
+        result = dry_run_validate(
+            load_params(ns.params),
+            OptimizerConfig(output_dir=Path(ns.output_dir)),
+        )
+        Path(ns.output_dir).mkdir(parents=True, exist_ok=True)
+        text = json.dumps(result.to_dict(), indent=2, sort_keys=True, default=str)
+        (Path(ns.output_dir) / "dry_run_validation.json").write_text(text + "\n")
+        print(text)
+        return 0 if result.status == "valid" else 1
     elif ns.cmd == "analyze":
         _cmd_analyze(ns.result_dir)
     elif ns.cmd == "export":

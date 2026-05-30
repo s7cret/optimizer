@@ -20,7 +20,7 @@ class Trial:
     profit_concentration_score: float | None
     backtest_result: dict | None
     execution_time_sec: float
-    status: Literal["completed", "failed", "timeout", "skipped"]
+    status: Literal["completed", "failed"]
     early_stopped: bool = False
     is_baseline: bool = False
     baseline_name: str | None = None

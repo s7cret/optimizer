@@ -8,7 +8,7 @@ from optimizer.core.parameter_space import ParameterSpace
 from optimizer.core.trial_runner import run_one
 from optimizer.core.expression import stable_hash
 from optimizer.results.leaderboard import rank_trials
-from optimizer.results.result import OptimizerResult
+from optimizer.results.result import OptimizerRunResult
 from optimizer.selection.selector import build_profiles, choose_recommended
 from optimizer.selection.baseline import baseline_comparison
 from optimizer.storage.sqlite_backend import SQLiteStorage
@@ -134,42 +134,6 @@ def _run_jobs(jobs, runner, config, space_hash, config_hash, store):
             ):
                 break
     return trials
-
-
-def _skipped_trial(tid, params, config, space_hash, config_hash, message):
-    ph = stable_hash(params)
-    direction = "maximize" if config.objective_direction == "auto" else config.objective_direction
-    return Trial(
-        tid,
-        dict(params),
-        {},
-        None,
-        direction,
-        None,
-        False,
-        {"parameters": message},
-        1,
-        None,
-        None,
-        None,
-        None,
-        None,
-        0.0,
-        "skipped",
-        parameter_space_hash=space_hash,
-        optimizer_config_hash=config_hash,
-        diagnostics=[
-            Diagnostic(
-                "INVALID_PARAM_COMBINATION",
-                message,
-                "warning",
-                tid,
-                ph,
-                context={"params": dict(params)},
-            )
-        ],
-        params_hash=ph,
-    )
 
 
 def _sequential_advanced(space, runner, config, space_hash, config_hash, store, next_id):
@@ -348,60 +312,11 @@ def optimize(
         trials.extend(advanced)
     else:
         jobs = []
-        if config.algorithm == "grid" and space.cross_constraints:
-            generated = 0
-            for params, valid in space.iter_grid_with_validity():
-                if generated >= config.max_trials:
-                    break
-                tid = next_id
-                next_id += 1
-                generated += 1
-                ph = stable_hash(params)
-                if ph in done_hashes:
-                    continue
-                if valid:
-                    jobs.append((tid, params))
-                else:
-                    t = _skipped_trial(
-                        tid,
-                        params,
-                        config,
-                        space_hash,
-                        config_hash,
-                        "cross-constraint expression rejected parameter combination",
-                    )
-                    store.save_trial(t)
-                    trials.append(t)
-        elif config.algorithm == "random" and space.cross_constraints:
-            generated = 0
-            for params, valid in random_search.generate_with_validity(space, config):
-                if generated >= config.max_trials:
-                    break
-                tid = next_id
-                next_id += 1
-                generated += 1
-                ph = stable_hash(params)
-                if ph in done_hashes:
-                    continue
-                if valid:
-                    jobs.append((tid, params))
-                else:
-                    t = _skipped_trial(
-                        tid,
-                        params,
-                        config,
-                        space_hash,
-                        config_hash,
-                        "cross-constraint expression rejected parameter combination",
-                    )
-                    store.save_trial(t)
-                    trials.append(t)
-        else:
-            for params in _params_for(space, config):
-                tid = next_id
-                next_id += 1
-                if stable_hash(params) not in done_hashes:
-                    jobs.append((tid, params))
+        for params in _params_for(space, config):
+            tid = next_id
+            next_id += 1
+            if stable_hash(params) not in done_hashes:
+                jobs.append((tid, params))
         trials.extend(_run_jobs(jobs, runner, config, space_hash, config_hash, store))
     if config.algorithm == "adaptive_grid" and trials:
         jobs = []
@@ -419,7 +334,7 @@ def optimize(
     rec, rec_name = choose_recommended(profiles, config.selection_mode)
     counts = {
         s: sum(1 for t in trials if t.status == s)
-        for s in ["completed", "failed", "timeout", "skipped"]
+        for s in ["completed", "failed"]
     }
     baseline_trial = next((t for t in trials if t.is_baseline), None)
     base_cmp = baseline_comparison(baseline_trial, rec)
@@ -456,7 +371,7 @@ def optimize(
                 },
             )
         )
-    res = OptimizerResult(
+    res = OptimizerRunResult(
         rec,
         rec_name,
         profiles["best_objective"].trial,

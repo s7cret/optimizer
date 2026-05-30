@@ -387,7 +387,7 @@ def run_one(
         )
         return trial
     except concurrent.futures.TimeoutError:
-        status = "timeout"
+        status = "failed"
         err = "trial timeout"
         tr = traceback.format_exc()
         diags.append(Diagnostic("TRIAL_TIMEOUT", err, "error", trial_id, params_hash))

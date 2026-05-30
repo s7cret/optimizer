@@ -1,10 +1,11 @@
 from dataclasses import dataclass, field, asdict
+from typing import Literal
 from optimizer.results.trial import Trial
 from optimizer.results.profile_result import ResultProfile
 
 
 @dataclass
-class OptimizerResult:
+class OptimizerRunResult:
     recommended_trial: Trial | None
     recommended_profile: str | None
     best_trial: Trial | None
@@ -28,6 +29,20 @@ class OptimizerResult:
     analysis: dict[str, object] = field(default_factory=dict)
     baseline_trial: Trial | None = None
     baseline_comparison: dict[str, object] = field(default_factory=dict)
+
+    def to_dict(self):
+        return asdict(self)
+
+
+@dataclass
+class DryRunValidationResult:
+    status: Literal["valid", "invalid"]
+    parameters_count: int
+    grid_combinations: int
+    valid_combinations: int
+    invalid_combinations: int
+    invalid_samples: list[dict[str, object]] = field(default_factory=list)
+    diagnostics: list = field(default_factory=list)
 
     def to_dict(self):
         return asdict(self)

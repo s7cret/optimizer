@@ -18,9 +18,9 @@ print(result.recommended_trial.params)
 
 ## Implemented
 
-- Parameter/ParameterSpace validation, grid/random/adaptive-grid generation, lazy grid iteration, safe AST cross constraints, and skipped records for invalid generated combinations.
+- Parameter/ParameterSpace validation, grid/random/adaptive-grid generation, lazy grid iteration, safe AST cross constraints, and a separate dry-run validation path for invalid generated combinations.
 - MetricExtractor and MetricRegistry with required metric/output/statistics awareness, objective-expression metric extraction, and profile metric requirements.
-- Trial/OptimizerResult/Profile models, objective scoring with minimize/maximize direction support, hard/soft min/max/eq/neq constraints, auto profile constraints, balanced ranking, leaderboard, Pareto front/knee.
+- Trial/OptimizerRunResult/Profile models, objective scoring with minimize/maximize direction support, hard/soft min/max/eq/neq constraints, auto profile constraints, balanced ranking, leaderboard, Pareto front/knee.
 - Baseline trial execution/comparison with `RECOMMENDED_WORSE_THAN_BASELINE` diagnostics.
 - Runner boundary with basic and advanced `RunnerRequest` protocols and diagnostics when basic runners cannot receive hints.
 - SQLite/JSON persistence with params-hash resume, loaded prior trials in results, atomic JSON writes, SQLite WAL, fingerprints and force-resume guard.

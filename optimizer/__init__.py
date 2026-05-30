@@ -15,7 +15,8 @@ from optimizer.core.metric_registry import MetricRegistry, MetricSpec
 from optimizer.core.diagnostic import Diagnostic
 from optimizer.results.trial import Trial
 from optimizer.results.profile_result import ResultProfile
-from optimizer.results.result import OptimizerResult
+from optimizer.results.result import DryRunValidationResult, OptimizerRunResult
+from optimizer.validation import dry_run_validate
 from optimizer.optimizer import optimize
 from optimizer.runners.backtest_engine import BacktestEngineRunnerAdapter
 
@@ -36,7 +37,9 @@ __all__ = [
     "Diagnostic",
     "Trial",
     "ResultProfile",
-    "OptimizerResult",
+    "OptimizerRunResult",
+    "DryRunValidationResult",
     "optimize",
+    "dry_run_validate",
     "BacktestEngineRunnerAdapter",
 ]

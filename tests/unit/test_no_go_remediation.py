@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from optimizer import OptimizerConfig, Parameter, optimize
+from optimizer import OptimizerConfig, Parameter, dry_run_validate, optimize
 from optimizer.core.diagnostic import Diagnostic
 from optimizer.core.expression import safe_eval_numeric
 from optimizer.core.metric_registry import MetricRegistry
@@ -94,7 +94,7 @@ def test_resume_uses_params_hash_and_loads_prior_trials(tmp_path):
     assert len({r["params_hash"] for r in rows}) == 2
 
 
-def test_invalid_grid_combos_are_saved_as_skipped(tmp_path):
+def test_invalid_grid_combos_are_dry_run_validation_not_production_trials(tmp_path):
     res = optimize(
         [Parameter("x", "int", 1, 1, 2, 1), Parameter("y", "int", 1, 1, 2, 1)],
         lambda p: {
@@ -111,8 +111,18 @@ def test_invalid_grid_combos_are_saved_as_skipped(tmp_path):
         ),
         cross_constraints=["x == y"],
     )
-    assert res.trials_count_by_status["skipped"] == 2
-    assert any(d.code == "INVALID_PARAM_COMBINATION" for t in res.all_trials for d in t.diagnostics)
+    assert res.trials_count_by_status == {"completed": 2, "failed": 0}
+    assert {t.status for t in res.all_trials} == {"completed"}
+    assert len(res.all_trials) == 2
+
+    dry = dry_run_validate(
+        [Parameter("x", "int", 1, 1, 2, 1), Parameter("y", "int", 1, 1, 2, 1)],
+        cross_constraints=["x == y"],
+    )
+    assert dry.status == "invalid"
+    assert dry.valid_combinations == 2
+    assert dry.invalid_combinations == 2
+    assert any(d.code == "INVALID_PARAM_COMBINATIONS" for d in dry.diagnostics)
 
 
 def test_metric_registry_expression_and_profile_requirements():
@@ -132,7 +142,7 @@ def test_safe_numeric_expression_rejects_bad_math():
         safe_eval_numeric("2 ** 99", {})
 
 
-def test_timeout_returns_timeout_status_without_waiting_for_runner_completion(tmp_path):
+def test_timeout_returns_failed_status_without_waiting_for_runner_completion(tmp_path):
     def slow(_p):
         time.sleep(0.3)
         return {"net_profit": 1}
@@ -149,7 +159,7 @@ def test_timeout_returns_timeout_status_without_waiting_for_runner_completion(tm
         ),
     )
     assert time.perf_counter() - t0 < 0.25
-    assert res.trials_count_by_status["timeout"] == 1
+    assert res.trials_count_by_status["failed"] == 1
     assert any(d.code == "TRIAL_TIMEOUT" for t in res.all_trials for d in t.diagnostics)
 
 

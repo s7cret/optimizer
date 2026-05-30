@@ -2,7 +2,7 @@ import json
 import subprocess
 import sys
 
-from optimizer import OptimizerConfig, Parameter, RunnerCapabilities, optimize
+from optimizer import OptimizerConfig, Parameter, RunnerCapabilities, dry_run_validate, optimize
 
 
 def test_non_best_objective_recommendation_never_violates_hard_constraints(tmp_path):
@@ -83,7 +83,7 @@ def test_adaptive_grid_refinement_uses_minimize_direction(tmp_path):
     assert seen[3] == 1
 
 
-def test_random_invalid_cross_constraint_combos_are_persisted_as_skipped(tmp_path):
+def test_random_invalid_cross_constraint_combos_are_not_persisted_as_production_trials(tmp_path):
     cfg = OptimizerConfig(
         algorithm="random",
         output_dir=tmp_path,
@@ -105,11 +105,15 @@ def test_random_invalid_cross_constraint_combos_are_persisted_as_skipped(tmp_pat
         cross_constraints=["x == y"],
     )
 
-    skipped = [t for t in res.all_trials if t.status == "skipped"]
-    assert skipped
-    assert all(any(d.code == "INVALID_PARAM_COMBINATION" for d in t.diagnostics) for t in skipped)
-    rows = [json.loads(line) for line in (tmp_path / "trials.jsonl").read_text().splitlines()]
-    assert any(r["status"] == "skipped" for r in rows)
+    assert set(res.trials_count_by_status) == {"completed", "failed"}
+    assert {t.status for t in res.all_trials} <= {"completed", "failed"}
+
+    dry = dry_run_validate(
+        [Parameter("x", "int", 1, 1, 3, 1), Parameter("y", "int", 1, 1, 3, 1)],
+        cross_constraints=["x == y"],
+    )
+    assert dry.invalid_combinations == 6
+    assert dry.valid_combinations == 3
 
 
 def test_required_output_capability_gap_fails_before_runner_call(tmp_path):
