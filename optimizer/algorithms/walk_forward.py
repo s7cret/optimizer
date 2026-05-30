@@ -52,44 +52,33 @@ def ranged_runner(runner: Any, range_: tuple[int, int], tag: str) -> Any:
     )
 
 
-def _pre_bars_runner(runner: Any, pre_bars: int) -> Any:
-    """Wrap runner so _effective_pre_bars is injected into RunnerRequest params.
-    
-    D5-F: For walk-forward test folds with pre-bars, the runner receives
-    _effective_pre_bars in params so it knows how many bars are pre-bars.
-    """
+def _pre_bars_runner(runner: Any, range_: tuple[int, int], tag: str, pre_bars: int) -> Any:
+    """Create a range-aware runner that injects _effective_pre_bars."""
     caps = getattr(runner, "capabilities", None)
-    supports_req = caps and getattr(caps, "supports_runner_request", False)
-    
-    if supports_req:
-        # Wrap __call__ to inject _effective_pre_bars into params
-        original_call = runner.__call__
-        
-        class PreBarsRunner:
-            capabilities = runner.capabilities
-            
-            def __call__(self, request: RunnerRequest) -> Any:
-                enriched_params = {**request.params, "_effective_pre_bars": pre_bars}
-                enriched = RunnerRequest(
-                    params=enriched_params,
-                    trial_id=request.trial_id,
-                    required_metrics=request.required_metrics,
-                    required_outputs=request.required_outputs,
-                    early_stop_conditions=request.early_stop_conditions,
-                    seed=request.seed,
-                    fingerprints=request.fingerprints,
-                    range=request.range,
-                    tags=request.tags,
-                )
-                return original_call(enriched)
-            
-            def with_range(self, start: int, end: int) -> Any:
-                return self
-        
-        return PreBarsRunner()
-    
-    # Fallback: runner doesn't support RunnerRequest, return as-is
-    return runner
+    if not (
+        caps
+        and getattr(caps, "supports_runner_request", False)
+        and getattr(caps, "supports_range", False)
+    ):
+        raise ValueError(
+            "walk-forward prehistory requires runner.capabilities.supports_runner_request "
+            "and supports_range"
+        )
+
+    def call(params: dict[str, object]) -> Any:
+        return runner(
+            RunnerRequest(
+                params={**params, "_effective_pre_bars": pre_bars},
+                trial_id=0,
+                required_metrics=set(),
+                required_outputs=set(),
+                early_stop_conditions=[],
+                range=range_,
+                tags={"walk_forward": tag},
+            )
+        )
+
+    return call
 
 
 def run(parameters: Any, runner: Any, base_config: OptimizerConfig, *, start: int, end: int):
@@ -121,12 +110,10 @@ def run(parameters: Any, runner: Any, base_config: OptimizerConfig, *, start: in
             test_cfg = OptimizerConfig(**cfg.to_dict())
             test_cfg.output_dir = Path(base_config.output_dir) / f"walk_forward_{idx}_test"
             test_cfg.max_trials = 1
-            # D5-F: use pre-bars runner if enabled
             if supports_pre:
-                test_runner = _pre_bars_runner(runner, pre_bars)
+                test_runner = _pre_bars_runner(runner, w["test"], "test", pre_bars)
             else:
                 test_runner = ranged_runner(runner, w["test"], "test")
-            # Avoid empty ParameterSpace: call runner directly via optimize-compatible one-trial baseline.
             from optimizer.core.trial_runner import run_one
 
             test_trial = run_one(

@@ -172,10 +172,15 @@ def test_walk_forward_include_prehistory_true_adds_pre_bars_param(tmp_path):
     class R:
         capabilities = RunnerCapabilities(supports_runner_request=True, supports_range=True)
         _received_pre_bars = None
+        _received_test_range = None
+        _received_test_tag = None
 
         def __call__(self, req):
             # D5-F: when include_prehistory is set, effective_pre_bars appears in params
             R._received_pre_bars = req.params.get("_effective_pre_bars")
+            if req.params.get("_effective_pre_bars") is not None:
+                R._received_test_range = req.range
+                R._received_test_tag = req.tags.get("walk_forward")
             bonus = 10 if req.tags.get("walk_forward") == "test" else 0
             return {"net_profit": req.params["x"] + bonus, "max_drawdown_percent": 1}
 
@@ -192,6 +197,32 @@ def test_walk_forward_include_prehistory_true_adds_pre_bars_param(tmp_path):
     assert len(wf["windows"]) == 2
     # _effective_pre_bars should be set for test runner
     assert R._received_pre_bars == 50
+    assert R._received_test_range == wf["windows"][-1]["ranges"]["test"]
+    assert R._received_test_tag == "test"
+    assert wf["windows"][0]["test_trial"].metrics["net_profit"] >= 11
+
+
+def test_walk_forward_prehistory_requires_range_aware_runner(tmp_path):
+    class R:
+        capabilities = RunnerCapabilities(supports_runner_request=False, supports_range=False)
+
+        def with_range(self, _start, _end):
+            return self
+
+        def __call__(self, params):
+            return {"net_profit": params["x"], "max_drawdown_percent": 1}
+
+    cfg = OptimizerConfig(
+        algorithm="walk_forward",
+        output_dir=tmp_path,
+        storage_backend="json",
+        walk_forward_windows=1,
+        walk_forward_include_prehistory=True,
+        walk_forward_pre_bars=10,
+    )
+
+    with pytest.raises(ValueError, match="prehistory requires"):
+        optimize([Parameter("x", "int", 1, 1, 1, 1)], R(), cfg, start=0, end=100)
 
 
 def test_walk_forward_pre_bars_zero_means_no_pre_bars(tmp_path):
