@@ -2,6 +2,8 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Literal
 
+from optimizer.errors import ParameterValidationError
+
 
 @dataclass
 class OptimizerConfig:
@@ -103,6 +105,18 @@ class OptimizerConfig:
     monte_carlo_simulations: int = 1000
     enable_plot_exports: bool = False
     plot_format: Literal["png", "svg", "html"] = "png"
+
+    def __post_init__(self) -> None:
+        if self.max_trials < 1:
+            raise ParameterValidationError("max_trials must be >= 1")
+        if self.max_parallel < 1:
+            raise ParameterValidationError("max_parallel must be >= 1")
+        if self.walk_forward_windows < 1:
+            raise ParameterValidationError("walk_forward_windows must be >= 1")
+        if not 0.0 < self.walk_forward_train_ratio < 1.0:
+            raise ParameterValidationError("walk_forward_train_ratio must be > 0 and < 1")
+        if self.walk_forward_pre_bars is not None and self.walk_forward_pre_bars < 0:
+            raise ParameterValidationError("walk_forward_pre_bars must be >= 0")
 
     def to_dict(self):
         d = asdict(self)

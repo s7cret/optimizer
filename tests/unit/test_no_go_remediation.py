@@ -7,6 +7,7 @@ from optimizer import OptimizerConfig, Parameter, dry_run_validate, optimize
 from optimizer.core.diagnostic import Diagnostic
 from optimizer.core.expression import safe_eval_numeric
 from optimizer.core.metric_registry import MetricRegistry
+from optimizer.errors import ParameterValidationError
 
 
 def test_diagnostic_public_signature_order():
@@ -123,6 +124,17 @@ def test_invalid_grid_combos_are_dry_run_validation_not_production_trials(tmp_pa
     assert dry.valid_combinations == 2
     assert dry.invalid_combinations == 2
     assert any(d.code == "INVALID_PARAM_COMBINATIONS" for d in dry.diagnostics)
+
+
+def test_invalid_optimizer_config_fails_before_production_run():
+    with pytest.raises(ParameterValidationError, match="max_trials"):
+        OptimizerConfig(max_trials=0)
+    with pytest.raises(ParameterValidationError, match="walk_forward_windows"):
+        OptimizerConfig(walk_forward_windows=0)
+    with pytest.raises(ParameterValidationError, match="walk_forward_train_ratio"):
+        OptimizerConfig(walk_forward_train_ratio=1.0)
+    with pytest.raises(ParameterValidationError, match="walk_forward_pre_bars"):
+        OptimizerConfig(walk_forward_pre_bars=-1)
 
 
 def test_metric_registry_expression_and_profile_requirements():
