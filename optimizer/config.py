@@ -89,6 +89,7 @@ class OptimizerConfig:
     checkpoint_every: int = 50
     resume: bool = True
     force_resume_on_fingerprint_mismatch: bool = False
+    run_id: str | None = None
     output_dir: Path = Path("./optimizer_results")
     storage_backend: Literal["sqlite", "json"] = "sqlite"
     analysis_profile: Literal["off", "mvp", "full", "custom"] = "mvp"

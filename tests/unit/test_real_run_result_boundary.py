@@ -5,11 +5,17 @@ from pathlib import Path
 
 from optimizer import (
     DryRunValidationResult,
+    ObjectiveSpec,
     OptimizerConfig,
+    OptimizationConstraints,
+    OptimizerRunRequest,
     OptimizerRunResult,
     Parameter,
+    ParameterSpace,
+    StrategyRef,
     dry_run_validate,
     optimize,
+    optimize_request,
 )
 
 
@@ -26,8 +32,63 @@ def test_public_optimize_returns_run_result_not_dry_run_result(tmp_path):
 
     assert isinstance(result, OptimizerRunResult)
     assert not isinstance(result, DryRunValidationResult)
+    assert result.status == "completed"
+    assert result.best_params == {"x": 1}
+    assert result.best_score == 1
+    assert result.trials == tuple(result.all_trials)
+    assert result.artifact_path is not None
     assert set(result.trials_count_by_status) == {"completed", "failed"}
     assert {t.status for t in result.all_trials} == {"completed"}
+
+
+def test_optimizer_run_request_carries_explicit_production_contract(tmp_path):
+    request = OptimizerRunRequest(
+        run_id="run-1",
+        strategy_ref=StrategyRef("strategy-1", version="v1"),
+        parameter_space=ParameterSpace([Parameter("x", "int", 2, 1, 2, 1)]),
+        data_query={"symbol": "BTCUSDT", "timeframe": "15"},
+        objective=ObjectiveSpec("net_profit", "maximize"),
+        constraints=OptimizationConstraints(cross_constraints=("x == 2",)),
+    )
+
+    result = optimize_request(
+        request,
+        lambda p: {"net_profit": p["x"], "max_drawdown_percent": 1},
+        OptimizerConfig(
+            output_dir=tmp_path,
+            storage_backend="json",
+            use_profile_auto_constraints=False,
+        ),
+    )
+
+    assert isinstance(result, OptimizerRunResult)
+    assert result.run_id == "run-1"
+    assert result.status == "completed"
+    assert result.best_params == {"x": 2}
+    assert result.best_score == 2
+    assert result.data_query == {"symbol": "BTCUSDT", "timeframe": "15"}
+    assert result.artifact_path == tmp_path / "trials.jsonl"
+
+
+def test_failed_only_run_has_failed_result_contract(tmp_path):
+    def runner(_params):
+        raise RuntimeError("boom")
+
+    result = optimize(
+        [Parameter("x", "int", 1, 1, 1, 1)],
+        runner,
+        OptimizerConfig(
+            output_dir=tmp_path,
+            storage_backend="json",
+            use_profile_auto_constraints=False,
+        ),
+    )
+
+    assert result.status == "failed"
+    assert result.best_params is None
+    assert result.best_score is None
+    assert result.trials_count_by_status == {"completed": 0, "failed": 1}
+    assert all(t.status == "failed" for t in result.trials)
 
 
 def test_dry_run_cli_writes_validation_result_without_production_result(tmp_path):

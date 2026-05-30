@@ -18,6 +18,7 @@ from optimizer.algorithms import grid_search, random_search, adaptive_grid, baye
 from optimizer.core.diagnostic import Diagnostic
 from optimizer.errors import UnsupportedFeatureError
 from optimizer.results.trial import Trial
+from optimizer.requests import OptimizerRunRequest
 
 
 SUPPORTED_OPTIMIZE_ALGORITHMS = {
@@ -395,5 +396,40 @@ def optimize(
         analysis=_analysis(config, trials, space),
         baseline_trial=baseline_trial,
         baseline_comparison=base_cmp,
+        run_id=config.run_id or stable_hash(
+            {
+                "parameter_space_hash": space_hash,
+                "optimizer_config_hash": config_hash,
+                "runner_fingerprint": fingerprints["runner_fingerprint"],
+            }
+        )[:16],
+        status=(
+            "completed"
+            if any(t.status == "completed" and t.objective_value is not None for t in trials)
+            else "failed"
+        ),
+        best_params=rec.params if rec is not None and rec.status == "completed" else None,
+        best_score=(
+            rec.objective_value if rec is not None and rec.status == "completed" else None
+        ),
+        trials=tuple(trials),
+        artifact_path=Path(getattr(store, "path", config.output_dir)),
     )
     return res
+
+
+def optimize_request(
+    request: OptimizerRunRequest,
+    runner,
+    config: OptimizerConfig | None = None,
+) -> OptimizerRunResult:
+    cfg = config or OptimizerConfig()
+    cfg.run_id = request.run_id
+    cfg.objective = request.objective.metric
+    cfg.objective_direction = request.objective.direction
+    cfg.objective_expression = request.objective.expression
+    cfg.constraints = dict(request.constraints.metrics)
+    cfg.cross_constraints = list(request.constraints.cross_constraints)
+    result = optimize(request.parameter_space, runner, cfg)
+    result.data_query = request.data_query
+    return result

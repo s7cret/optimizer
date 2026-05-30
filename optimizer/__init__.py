@@ -16,8 +16,14 @@ from optimizer.core.diagnostic import Diagnostic
 from optimizer.results.trial import Trial
 from optimizer.results.profile_result import ResultProfile
 from optimizer.results.result import DryRunValidationResult, OptimizerRunResult
+from optimizer.requests import (
+    ObjectiveSpec,
+    OptimizationConstraints,
+    OptimizerRunRequest,
+    StrategyRef,
+)
 from optimizer.validation import dry_run_validate
-from optimizer.optimizer import optimize
+from optimizer.optimizer import optimize, optimize_request
 from optimizer.runners.backtest_engine import BacktestEngineRunnerAdapter
 
 __all__ = [
@@ -38,8 +44,13 @@ __all__ = [
     "Trial",
     "ResultProfile",
     "OptimizerRunResult",
+    "OptimizerRunRequest",
+    "StrategyRef",
+    "ObjectiveSpec",
+    "OptimizationConstraints",
     "DryRunValidationResult",
     "optimize",
+    "optimize_request",
     "dry_run_validate",
     "BacktestEngineRunnerAdapter",
 ]

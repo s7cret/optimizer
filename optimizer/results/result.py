@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field, asdict
-from typing import Literal
+from pathlib import Path
+from typing import Any, Literal
 from optimizer.results.trial import Trial
 from optimizer.results.profile_result import ResultProfile
 
@@ -29,9 +30,19 @@ class OptimizerRunResult:
     analysis: dict[str, object] = field(default_factory=dict)
     baseline_trial: Trial | None = None
     baseline_comparison: dict[str, object] = field(default_factory=dict)
+    run_id: str | None = None
+    status: Literal["completed", "failed"] = "failed"
+    best_params: dict[str, object] | None = None
+    best_score: float | None = None
+    trials: tuple[Trial, ...] = field(default_factory=tuple)
+    artifact_path: Path | None = None
+    data_query: Any | None = None
 
     def to_dict(self):
-        return asdict(self)
+        data = asdict(self)
+        if self.artifact_path is not None:
+            data["artifact_path"] = str(self.artifact_path)
+        return data
 
 
 @dataclass
