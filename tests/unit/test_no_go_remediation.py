@@ -7,7 +7,7 @@ from optimizer import OptimizerConfig, Parameter, dry_run_validate, optimize
 from optimizer.core.diagnostic import Diagnostic
 from optimizer.core.expression import safe_eval_numeric
 from optimizer.core.metric_registry import MetricRegistry
-from optimizer.errors import ParameterValidationError
+from optimizer.errors import ParameterValidationError, StorageError
 
 
 def test_diagnostic_public_signature_order():
@@ -93,6 +93,29 @@ def test_resume_uses_params_hash_and_loads_prior_trials(tmp_path):
     assert second.trials_count_by_status["completed"] == 2
     rows = [json.loads(x) for x in (tmp_path / "trials.jsonl").read_text().splitlines()]
     assert len({r["params_hash"] for r in rows}) == 2
+
+
+def test_resume_with_metadata_but_missing_trials_fails_closed(tmp_path):
+    def runner(p):
+        return {
+            "net_profit": p["x"],
+            "max_drawdown_percent": 1,
+            "profit_factor": 1.1,
+            "sharpe_ratio": 1,
+        }
+
+    params = [Parameter("x", "int", 1, 1, 1, 1)]
+    cfg = OptimizerConfig(
+        output_dir=tmp_path,
+        storage_backend="json",
+        max_trials=1,
+        use_profile_auto_constraints=False,
+    )
+    optimize(params, runner, cfg)
+    (tmp_path / "trials.jsonl").unlink()
+
+    with pytest.raises(StorageError, match="no persisted optimizer trials"):
+        optimize(params, runner, cfg)
 
 
 def test_invalid_grid_combos_are_dry_run_validation_not_production_trials(tmp_path):

@@ -277,10 +277,16 @@ def optimize(
         "engine_config_hash": None,
     }
     store = _storage(config)
-    check_resume(store, fingerprints, config.force_resume_on_fingerprint_mismatch)
+    previous_run_metadata = check_resume(
+        store, fingerprints, config.force_resume_on_fingerprint_mismatch
+    )
     diagnostics: list[Diagnostic] = []
     _check_parallel_policy(config, diagnostics)
     raw_existing = store.load_trials_raw() if config.resume else []
+    if config.resume and previous_run_metadata and not raw_existing:
+        from optimizer.errors import StorageError
+
+        raise StorageError("resume metadata exists but no persisted optimizer trials were found")
     existing_trials = [t for t in (_trial_from_raw(x) for x in raw_existing) if t is not None]
     done_hashes = {
         x.get("params_hash") or stable_hash(x.get("params", {}))
