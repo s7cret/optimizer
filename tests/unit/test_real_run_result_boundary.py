@@ -140,3 +140,14 @@ def test_production_package_has_no_legacy_status_literals():
     assert '"skipped"' not in text
     assert 'status = "timeout"' not in text
     assert "OptimizerResult" not in text
+
+
+def test_production_package_has_no_notimplemented_runtime_contracts():
+    root = Path(__file__).resolve().parents[2] / "optimizer"
+    offenders = [
+        str(p.relative_to(root.parent))
+        for p in root.rglob("*.py")
+        if "NotImplementedError" in p.read_text()
+    ]
+
+    assert offenders == []

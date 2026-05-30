@@ -1,12 +1,18 @@
-class StorageBackend:
+from abc import ABC, abstractmethod
+
+
+class StorageBackend(ABC):
+    @abstractmethod
     def init_run(self, *a, **k):
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def save_trial(self, trial):
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def load_trials(self):
-        raise NotImplementedError
+        ...
 
     def close(self):
         pass
