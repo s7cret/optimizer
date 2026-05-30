@@ -1,7 +1,6 @@
 from pathlib import Path
 from typing import Any
 from optimizer.config import OptimizerConfig
-from optimizer.core.diagnostic import Diagnostic
 from optimizer.protocols import RunnerRequest
 
 
@@ -85,7 +84,6 @@ def run(parameters: Any, runner: Any, base_config: OptimizerConfig, *, start: in
     from optimizer.optimizer import optimize
 
     results = []
-    diags = []
     include_pre = getattr(base_config, "walk_forward_include_prehistory", False)
     pre_bars = getattr(base_config, "walk_forward_pre_bars", None)
     supports_pre = include_pre and pre_bars is not None and pre_bars > 0
@@ -128,13 +126,11 @@ def run(parameters: Any, runner: Any, base_config: OptimizerConfig, *, start: in
             {"window": idx, "ranges": w, "train_result": train_res, "test_trial": test_trial}
         )
     if not results:
-        diags.append(
-            Diagnostic(
-                "WALK_FORWARD_NO_WINDOWS", "No valid walk-forward windows were produced", "warning"
-            )
+        raise ValueError(
+            "walk-forward produced no valid windows; expand the range or adjust window settings"
         )
     return {
-        "status": "ok" if results else "insufficient_data",
+        "status": "ok",
         "windows": results,
-        "diagnostics": diags,
+        "diagnostics": [],
     }

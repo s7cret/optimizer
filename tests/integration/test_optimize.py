@@ -144,6 +144,24 @@ def test_public_optimize_walk_forward_requires_range_capable_runner(tmp_path):
         optimize([Parameter("x", "int", 1, 1, 1, 1)], _runner, cfg, start=0, end=100)
 
 
+def test_public_optimize_walk_forward_without_valid_windows_fails_fast(tmp_path):
+    class R:
+        capabilities = RunnerCapabilities(supports_runner_request=True, supports_range=True)
+
+        def __call__(self, req):
+            return {"net_profit": req.params["x"], "max_drawdown_percent": 1}
+
+    cfg = OptimizerConfig(
+        algorithm="walk_forward",
+        output_dir=tmp_path,
+        storage_backend="json",
+        max_trials=1,
+        walk_forward_windows=2,
+    )
+    with pytest.raises(ValueError, match="produced no valid windows"):
+        optimize([Parameter("x", "int", 1, 1, 1, 1)], R(), cfg, start=0, end=1)
+
+
 # ─── D5-F: Walk-Forward Prehistory ─────────────────────────────────────────────
 
 def test_walk_forward_include_prehistory_false_uses_default_behavior(tmp_path):
