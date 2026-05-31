@@ -1,5 +1,5 @@
 from optimizer.core.metric_registry import MetricRegistry
-from optimizer.core.objective import objective_sort_value
+from optimizer.results.leaderboard import rank_trials
 from optimizer.results.profile_result import ResultProfile
 from optimizer.selection.pareto import pareto_front
 from optimizer.selection.pareto_knee import pareto_knee
@@ -29,9 +29,8 @@ def build_profiles(trials, config):
     # intentionally empty and choose_recommended() returns None for risk modes.
     candidates = passed
     profiles = {}
-    bo = _best(
-        completed, lambda t: objective_sort_value(t.objective_value, t.objective_direction), True
-    )
+    ranked_completed = rank_trials(completed, config)
+    bo = ranked_completed[0] if ranked_completed else None
     profiles["best_objective"] = ResultProfile(
         "best_objective",
         bo,
@@ -39,9 +38,8 @@ def build_profiles(trials, config):
         "objective_value",
         None if bo is None else bo.objective_value,
     )
-    bp = _best(
-        passed, lambda t: objective_sort_value(t.objective_value, t.objective_direction), True
-    )
+    ranked_passed = rank_trials(passed, config)
+    bp = ranked_passed[0] if ranked_passed else None
     profiles["best_passed_constraints"] = ResultProfile(
         "best_passed_constraints",
         bp,

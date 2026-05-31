@@ -12,8 +12,8 @@ from optimizer import (
     OptimizerRunResult,
     Parameter,
     ParameterSpace,
+    RunnerCapabilities,
     StrategyRef,
-    dry_run_validate,
     optimize,
     optimize_request,
 )
@@ -68,6 +68,94 @@ def test_optimizer_run_request_carries_explicit_production_contract(tmp_path):
     assert result.best_score == 2
     assert result.data_query == {"symbol": "BTCUSDT", "timeframe": "15"}
     assert result.artifact_path == tmp_path / "trials.jsonl"
+
+
+def test_unproven_realtime_data_query_is_rejected_before_runner_call(tmp_path):
+    request = OptimizerRunRequest(
+        run_id="run-risky",
+        strategy_ref=None,
+        parameter_space=ParameterSpace([Parameter("x", "int", 1, 1, 1, 1)]),
+        data_query={"symbol": "BTCUSDT", "realtime": True, "duTickCompleteness": "blocked"},
+    )
+
+    def runner(_params):  # pragma: no cover - must not be called
+        raise AssertionError("runner should not be called")
+
+    result = optimize_request(
+        request,
+        runner,
+        OptimizerConfig(
+            output_dir=tmp_path,
+            storage_backend="json",
+            use_profile_auto_constraints=False,
+        ),
+    )
+
+    assert result.status == "failed"
+    assert result.trials == ()
+    assert result.data_query == request.data_query
+    assert any(d.code == "UNPROVEN_REALTIME_INTRABAR_DATA_QUERY" for d in result.diagnostics)
+
+
+def test_proven_realtime_data_query_is_allowed(tmp_path):
+    request = OptimizerRunRequest(
+        run_id="run-proven",
+        strategy_ref=None,
+        parameter_space=ParameterSpace([Parameter("x", "int", 1, 1, 1, 1)]),
+        data_query={
+            "symbol": "BTCUSDT",
+            "realtime": True,
+            "oracle_gates": {
+                "tvRealtimeBoundary": "proven",
+                "duTickCompleteness": "proven",
+                "intrabarOrderFill": "proven",
+            },
+        },
+    )
+
+    result = optimize_request(
+        request,
+        lambda p: {"net_profit": p["x"], "max_drawdown_percent": 1},
+        OptimizerConfig(
+            output_dir=tmp_path,
+            storage_backend="json",
+            use_profile_auto_constraints=False,
+        ),
+    )
+
+    assert result.status == "completed"
+    assert result.best_params == {"x": 1}
+
+
+def test_objective_expression_does_not_require_default_objective_metric(tmp_path):
+    class R:
+        capabilities = RunnerCapabilities(
+            supports_runner_request=True,
+            supports_required_outputs=True,
+            supported_outputs={"summary_metrics"},
+        )
+
+        def __call__(self, req):
+            assert "net_profit" not in req.required_metrics
+            return {
+                "metrics": {"custom_alpha": 3.0},
+                "trades_available": False,
+                "equity_available": False,
+            }
+
+    result = optimize(
+        [Parameter("x", "int", 1, 1, 1, 1)],
+        R(),
+        OptimizerConfig(
+            output_dir=tmp_path,
+            storage_backend="json",
+            use_profile_auto_constraints=False,
+            objective_expression="custom_alpha * 2",
+        ),
+    )
+
+    assert result.status == "completed"
+    assert result.best_score == 6.0
 
 
 def test_failed_only_run_has_failed_result_contract(tmp_path):

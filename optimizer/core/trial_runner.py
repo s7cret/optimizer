@@ -2,9 +2,6 @@ import concurrent.futures
 import time
 import traceback
 
-from optimizer.protocols import RunnerRequest
-
-RUNNER_CONTRACT = "pain.optimizer_runner.v1"
 from optimizer.core.metric_extractor import MetricExtractor
 from optimizer.core.metric_registry import MetricRegistry
 from optimizer.core.constraints import evaluate_constraints, merge_constraints
@@ -13,7 +10,10 @@ from optimizer.core.normalization import balanced_score
 from optimizer.core.expression import stable_hash
 from optimizer.results.trial import Trial
 from optimizer.core.diagnostic import Diagnostic
+from optimizer.protocols import RunnerRequest
 from optimizer.version import __version__
+
+RUNNER_CONTRACT = "pain.optimizer_runner.v1"
 
 
 def now_ms():
@@ -35,11 +35,14 @@ def _call_with_timeout(fn, timeout):
 
 def _required_metrics(config):
     reg = MetricRegistry()
-    required = {config.objective, *merge_constraints(config).keys()}
-    required |= reg.extract_expression_metrics(config.objective_expression)
+    required = set(merge_constraints(config).keys())
+    if config.objective_expression:
+        required |= reg.extract_expression_metrics(config.objective_expression)
+    else:
+        required.add(config.objective)
     if config.objective_secondary:
         required.add(config.objective_secondary)
-    if config.report_profiles:
+    if config.report_profiles and not config.objective_expression:
         required |= reg.profile_required_metrics(
             ["best_profit", "best_drawdown", "best_profit_factor", "best_sharpe", "best_balanced"]
         )
@@ -152,7 +155,15 @@ def run_one(
     metrics = {}
     raw = None
     params_hash = stable_hash(params)
-    direction = objective_direction(config.objective, config.objective_direction)
+    direction = (
+        config.objective_direction
+        if config.objective_expression and config.objective_direction != "auto"
+        else (
+            "maximize"
+            if config.objective_expression
+            else objective_direction(config.objective, config.objective_direction)
+        )
+    )
     constraints = merge_constraints(config)
     try:
         caps = getattr(runner, "capabilities", None)

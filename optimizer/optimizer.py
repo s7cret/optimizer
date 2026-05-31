@@ -1,5 +1,10 @@
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
+from concurrent.futures import (
+    FIRST_COMPLETED,
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+    wait,
+)
 import json
 import os
 from itertools import islice
@@ -96,6 +101,123 @@ def _check_parallel_policy(config, diagnostics):
             )
 
 
+def _is_proven(value):
+    return value is True or (isinstance(value, str) and value.lower() == "proven")
+
+
+def _lookup_nested(payload, *names):
+    if not isinstance(payload, dict):
+        return None
+    for name in names:
+        if name in payload:
+            return payload[name]
+    gates = payload.get("oracle_gates") or payload.get("oracleGates") or payload.get("gates")
+    if isinstance(gates, dict):
+        for name in names:
+            if name in gates:
+                return gates[name]
+    return None
+
+
+def _data_query_risk_reasons(payload):
+    reasons = set()
+
+    def walk(value, key=""):
+        key_l = str(key).lower()
+        if isinstance(value, dict):
+            for child_key, child_value in value.items():
+                walk(child_value, child_key)
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                walk(item, key)
+            return
+        text = str(value).lower() if isinstance(value, str) else ""
+        truthy = value is True or (isinstance(value, str) and text in {"true", "yes", "1"})
+        if key_l in {"realtime", "live", "use_realtime", "allow_realtime"} and truthy:
+            reasons.add("realtime")
+        if key_l in {"intrabar", "use_intrabar", "bar_magnifier", "use_bar_magnifier"} and truthy:
+            reasons.add("intrabar")
+        if key_l in {"tick", "ticks", "tick_data", "du_tick_data"} and truthy:
+            reasons.add("tick")
+        if key_l in {"mode", "kind", "type", "data_type", "source", "feed"} and text in {
+            "realtime",
+            "live",
+            "tick",
+            "ticks",
+            "intrabar",
+            "du_tick",
+        }:
+            reasons.add(text)
+        if key_l in {"lower_timeframe", "lower_tf", "intrabar_timeframe"} and value not in {
+            None,
+            "",
+            False,
+        }:
+            reasons.add("intrabar")
+
+    walk(payload)
+    return reasons
+
+
+def _validate_data_query(data_query):
+    reasons = _data_query_risk_reasons(data_query)
+    if not reasons:
+        return None
+    required = {
+        "tvRealtimeBoundary": _lookup_nested(
+            data_query, "tvRealtimeBoundary", "tv_realtime_boundary", "final_tick_commit"
+        ),
+        "duTickCompleteness": _lookup_nested(
+            data_query, "duTickCompleteness", "du_tick_completeness", "tick_completeness"
+        ),
+        "intrabarOrderFill": _lookup_nested(
+            data_query, "intrabarOrderFill", "intrabar_order_fill", "intrabar_fill_oracle"
+        ),
+    }
+    missing = [name for name, value in required.items() if not _is_proven(value)]
+    if not missing:
+        return None
+    return Diagnostic(
+        "UNPROVEN_REALTIME_INTRABAR_DATA_QUERY",
+        "realtime/tick/intrabar optimizer inputs require proven oracle gates",
+        "error",
+        context={
+            "risk_reasons": sorted(reasons),
+            "missing_or_unproven_gates": missing,
+        },
+    )
+
+
+def _failed_request_result(request, diagnostic, output_dir):
+    return OptimizerRunResult(
+        None,
+        None,
+        None,
+        [],
+        [],
+        [],
+        [],
+        str(output_dir),
+        {"completed": 0, "failed": 0},
+        diagnostics=[diagnostic],
+        run_id=request.run_id,
+        status="failed",
+        trials=(),
+        artifact_path=Path(output_dir),
+        data_query=request.data_query,
+    )
+
+
+def _stop_requested(trials, config):
+    if config.fail_fast and any(t.status != "completed" for t in trials):
+        return True
+    return (
+        config.max_failed_trials is not None
+        and sum(1 for x in trials if x.status != "completed") >= config.max_failed_trials
+    )
+
+
 def _run_jobs(jobs, runner, config, space_hash, config_hash, store):
     trials = []
     if config.max_parallel > 1 and len(jobs) > 1:
@@ -103,36 +225,44 @@ def _run_jobs(jobs, runner, config, space_hash, config_hash, store):
             ProcessPoolExecutor if config.parallel_backend == "process" else ThreadPoolExecutor
         )
         with executor_cls(max_workers=config.max_parallel) as ex:
-            future_map = {
-                ex.submit(run_one, tid, params, runner, config, space_hash, config_hash): tid
-                for tid, params in jobs
-            }
-            iterator = (
-                [f for f in future_map] if config.ordered_results else as_completed(future_map)
-            )
-            for f in iterator:
-                t = f.result()
-                store.save_trial(t)
-                trials.append(t)
-                if config.fail_fast and t.status != "completed":
+            job_iter = iter(jobs)
+            pending = {}
+
+            def submit_next():
+                try:
+                    tid, params = next(job_iter)
+                except StopIteration:
+                    return False
+                fut = ex.submit(run_one, tid, params, runner, config, space_hash, config_hash)
+                pending[fut] = tid
+                return True
+
+            for _ in range(min(config.max_parallel, len(jobs))):
+                submit_next()
+            while pending:
+                done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                for f in done:
+                    pending.pop(f, None)
+                    t = f.result()
+                    store.save_trial(t)
+                    trials.append(t)
+                if _stop_requested(trials, config):
+                    for pending_future in pending:
+                        pending_future.cancel()
+                    pending.clear()
+                    ex.shutdown(wait=False, cancel_futures=True)
                     break
-                if (
-                    config.max_failed_trials is not None
-                    and sum(1 for x in trials if x.status != "completed")
-                    >= config.max_failed_trials
-                ):
-                    break
+                while len(pending) < config.max_parallel and submit_next():
+                    pass
+        if config.ordered_results:
+            order = {tid: idx for idx, (tid, _params) in enumerate(jobs)}
+            trials.sort(key=lambda t: order.get(t.id, t.id))
     else:
         for tid, params in jobs:
             t = run_one(tid, params, runner, config, space_hash, config_hash)
             store.save_trial(t)
             trials.append(t)
-            if config.fail_fast and t.status != "completed":
-                break
-            if (
-                config.max_failed_trials is not None
-                and sum(1 for x in trials if x.status != "completed") >= config.max_failed_trials
-            ):
+            if _stop_requested(trials, config):
                 break
     return trials
 
@@ -161,6 +291,8 @@ def _sequential_advanced(space, runner, config, space_hash, config_hash, store, 
                 for t in batch
                 if t.status == "completed" and t.objective_value is not None
             )
+            if _stop_requested(trials, config):
+                break
             if len(trials) >= config.max_trials or not evaluated:
                 break
             population = genetic.next_generation(space, config, evaluated, seen, generation)
@@ -184,6 +316,8 @@ def _sequential_advanced(space, runner, config, space_hash, config_hash, store, 
                 for t in batch
                 if t.status == "completed" and t.objective_value is not None
             )
+            if _stop_requested(trials, config):
+                break
         iteration = 0
         target = min(config.bayesian_trials, config.max_trials)
         while len(trials) < target and evaluated:
@@ -200,6 +334,8 @@ def _sequential_advanced(space, runner, config, space_hash, config_hash, store, 
                 for t in batch
                 if t.status == "completed" and t.objective_value is not None
             )
+            if _stop_requested(trials, config):
+                break
         return trials, next_id
     raise UnsupportedFeatureError(
         f"Unknown optimizer algorithm {config.algorithm!r}; supported values are "
@@ -333,7 +469,7 @@ def optimize(
             jobs.append((next_id, p))
             next_id += 1
         trials.extend(_run_jobs(jobs, runner, config, space_hash, config_hash, store))
-    ranked = rank_trials(trials)
+    ranked = rank_trials(trials, config)
     profiles, pf = build_profiles(trials, config)
     if hasattr(store, "save_profile"):
         for p in profiles.values():
@@ -378,6 +514,23 @@ def optimize(
                 },
             )
         )
+    completed_count = sum(1 for t in trials if t.status == "completed")
+    min_completed_satisfied = completed_count >= config.min_completed_trials
+    if not min_completed_satisfied:
+        diagnostics.append(
+            Diagnostic(
+                "MIN_COMPLETED_TRIALS_NOT_MET",
+                (
+                    f"completed trials {completed_count} is below "
+                    f"min_completed_trials={config.min_completed_trials}"
+                ),
+                "error",
+                context={
+                    "completed_trials": completed_count,
+                    "min_completed_trials": config.min_completed_trials,
+                },
+            )
+        )
     res = OptimizerRunResult(
         rec,
         rec_name,
@@ -411,12 +564,19 @@ def optimize(
         )[:16],
         status=(
             "completed"
-            if any(t.status == "completed" and t.objective_value is not None for t in trials)
+            if min_completed_satisfied
+            and any(t.status == "completed" and t.objective_value is not None for t in trials)
             else "failed"
         ),
-        best_params=rec.params if rec is not None and rec.status == "completed" else None,
+        best_params=(
+            rec.params
+            if min_completed_satisfied and rec is not None and rec.status == "completed"
+            else None
+        ),
         best_score=(
-            rec.objective_value if rec is not None and rec.status == "completed" else None
+            rec.objective_value
+            if min_completed_satisfied and rec is not None and rec.status == "completed"
+            else None
         ),
         trials=tuple(trials),
         artifact_path=Path(getattr(store, "path", config.output_dir)),
@@ -430,6 +590,10 @@ def optimize_request(
     config: OptimizerConfig | None = None,
 ) -> OptimizerRunResult:
     cfg = config or OptimizerConfig()
+    cfg.output_dir = Path(cfg.output_dir)
+    data_query_diagnostic = _validate_data_query(request.data_query)
+    if data_query_diagnostic is not None:
+        return _failed_request_result(request, data_query_diagnostic, cfg.output_dir)
     cfg.run_id = request.run_id
     cfg.objective = request.objective.metric
     cfg.objective_direction = request.objective.direction

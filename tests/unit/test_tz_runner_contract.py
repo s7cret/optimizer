@@ -1,5 +1,3 @@
-import pytest
-
 from optimizer import OptimizerConfig, Parameter, RunnerCapabilities, RunnerResponse, optimize
 
 

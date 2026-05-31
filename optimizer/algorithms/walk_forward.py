@@ -1,7 +1,60 @@
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from optimizer.config import OptimizerConfig
 from optimizer.protocols import RunnerRequest
+
+
+def _request_with_range(
+    request: RunnerRequest,
+    range_: tuple[int, int],
+    tag: str,
+    extra_params: dict[str, object] | None = None,
+) -> RunnerRequest:
+    params = request.params if extra_params is None else {**request.params, **extra_params}
+    return replace(
+        request,
+        params=params,
+        range=range_,
+        tags={**request.tags, "walk_forward": tag},
+    )
+
+
+class _RunnerRequestRangeWrapper:
+    def __init__(
+        self,
+        runner: Any,
+        range_: tuple[int, int],
+        tag: str,
+        extra_params: dict[str, object] | None = None,
+    ) -> None:
+        self.runner = runner
+        self.range = range_
+        self.tag = tag
+        self.extra_params = extra_params
+        self.capabilities = getattr(runner, "capabilities", None)
+
+    def __call__(self, request_or_params: Any) -> Any:
+        if isinstance(request_or_params, RunnerRequest):
+            return self.runner(
+                _request_with_range(
+                    request_or_params, self.range, self.tag, self.extra_params
+                )
+            )
+        params = request_or_params
+        if self.extra_params is not None:
+            params = {**params, **self.extra_params}
+        return self.runner(
+            RunnerRequest(
+                params=params,
+                trial_id=0,
+                required_metrics=set(),
+                required_outputs=set(),
+                early_stop_conditions=[],
+                range=self.range,
+                tags={"walk_forward": self.tag},
+            )
+        )
 
 
 def windows(
@@ -30,20 +83,7 @@ def ranged_runner(runner: Any, range_: tuple[int, int], tag: str) -> Any:
         and getattr(caps, "supports_range", False)
     ):
 
-        def call(params: dict[str, object]) -> Any:
-            return runner(
-                RunnerRequest(
-                    params=params,
-                    trial_id=0,
-                    required_metrics=set(),
-                    required_outputs=set(),
-                    early_stop_conditions=[],
-                    range=range_,
-                    tags={"walk_forward": tag},
-                )
-            )
-
-        return call
+        return _RunnerRequestRangeWrapper(runner, range_, tag)
     if hasattr(runner, "with_range"):
         return runner.with_range(*range_)
     raise ValueError(
@@ -64,20 +104,9 @@ def _pre_bars_runner(runner: Any, range_: tuple[int, int], tag: str, pre_bars: i
             "and supports_range"
         )
 
-    def call(params: dict[str, object]) -> Any:
-        return runner(
-            RunnerRequest(
-                params={**params, "_effective_pre_bars": pre_bars},
-                trial_id=0,
-                required_metrics=set(),
-                required_outputs=set(),
-                early_stop_conditions=[],
-                range=range_,
-                tags={"walk_forward": tag},
-            )
-        )
-
-    return call
+    return _RunnerRequestRangeWrapper(
+        runner, range_, tag, {"_effective_pre_bars": pre_bars}
+    )
 
 
 def run(parameters: Any, runner: Any, base_config: OptimizerConfig, *, start: int, end: int):
@@ -87,7 +116,7 @@ def run(parameters: Any, runner: Any, base_config: OptimizerConfig, *, start: in
     include_pre = getattr(base_config, "walk_forward_include_prehistory", False)
     pre_bars = getattr(base_config, "walk_forward_pre_bars", None)
     supports_pre = include_pre and pre_bars is not None and pre_bars > 0
-    
+
     for idx, w in enumerate(
         windows(
             start,

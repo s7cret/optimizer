@@ -110,24 +110,44 @@ def test_public_optimize_walk_forward_requires_explicit_range(tmp_path):
 
 def test_public_optimize_routes_walk_forward_with_range_runner(tmp_path):
     class R:
-        capabilities = RunnerCapabilities(supports_runner_request=True, supports_range=True)
+        capabilities = RunnerCapabilities(
+            supports_runner_request=True,
+            supports_range=True,
+            supports_required_outputs=True,
+            supported_outputs={"summary_metrics"},
+            supports_seed=True,
+        )
+
+        def __init__(self):
+            self.requests = []
 
         def __call__(self, req):
+            self.requests.append(req)
             assert req.range is not None
+            assert req.required_metrics == {"net_profit"}
+            assert req.required_outputs == {"summary_metrics"}
+            assert req.seed == 123
+            assert req.trial_id > 0
+            assert req.fingerprints["parameter_space_hash"]
             bonus = 100 if req.tags.get("walk_forward") == "test" else 0
-            return {"net_profit": req.params["x"] + bonus, "max_drawdown_percent": 1}
+            return {"metrics": {"net_profit": req.params["x"] + bonus}}
 
+    runner = R()
     cfg = OptimizerConfig(
         algorithm="walk_forward",
+        seed=123,
         output_dir=tmp_path,
         storage_backend="json",
         max_trials=2,
         walk_forward_windows=2,
+        report_profiles=False,
+        use_profile_auto_constraints=False,
     )
-    wf = optimize([Parameter("x", "int", 1, 1, 2, 1)], R(), cfg, start=0, end=100)
+    wf = optimize([Parameter("x", "int", 1, 1, 2, 1)], runner, cfg, start=0, end=100)
     assert wf["status"] == "ok"
     assert len(wf["windows"]) == 2
     assert wf["windows"][0]["test_trial"].status == "completed"
+    assert {req.tags["walk_forward"] for req in runner.requests} == {"train", "test"}
 
 
 def test_public_optimize_walk_forward_requires_range_capable_runner(tmp_path):
