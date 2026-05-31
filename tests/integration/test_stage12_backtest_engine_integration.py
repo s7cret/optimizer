@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
-
-sys.path.insert(0, "[local-home]/backtest_engine")
 
 from backtest_engine import BacktestConfig, BacktestEngine, Bar  # noqa: E402
 from optimizer import BacktestEngineRunnerAdapter, OptimizerConfig, Parameter, optimize  # noqa: E402
