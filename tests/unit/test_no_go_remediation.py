@@ -10,6 +10,15 @@ from optimizer.core.metric_registry import MetricRegistry
 from optimizer.errors import ParameterValidationError, StorageError
 
 
+def process_timeout_slow_runner(_params):
+    time.sleep(1.0)
+    return {"net_profit": 1}
+
+
+def process_timeout_fast_runner(params):
+    return {"net_profit": params["x"], "max_drawdown_percent": 1}
+
+
 def test_diagnostic_public_signature_order():
     d = Diagnostic("C", "msg", "error", 7, "hash", "metric", {"x": 1})
     assert d.to_dict() == {
@@ -196,6 +205,63 @@ def test_timeout_returns_failed_status_without_waiting_for_runner_completion(tmp
     assert time.perf_counter() - t0 < 0.25
     assert res.trials_count_by_status["failed"] == 1
     assert any(d.code == "TRIAL_TIMEOUT" for t in res.all_trials for d in t.diagnostics)
+
+
+def test_process_timeout_backend_terminates_picklable_runner(tmp_path):
+    t0 = time.perf_counter()
+    res = optimize(
+        [Parameter("x", "int", 1, 1, 1, 1)],
+        process_timeout_slow_runner,
+        OptimizerConfig(
+            output_dir=tmp_path,
+            storage_backend="json",
+            timeout_per_trial_sec=0.05,
+            timeout_backend="process",
+            use_profile_auto_constraints=False,
+        ),
+    )
+    assert time.perf_counter() - t0 < 0.5
+    assert res.trials_count_by_status["failed"] == 1
+    assert any(d.code == "TRIAL_TIMEOUT" for t in res.all_trials for d in t.diagnostics)
+
+
+def test_auto_timeout_backend_falls_back_for_local_runner(tmp_path):
+    def local_runner(params):
+        return {"net_profit": params["x"], "max_drawdown_percent": 1}
+
+    res = optimize(
+        [Parameter("x", "int", 1, 1, 1, 1)],
+        local_runner,
+        OptimizerConfig(
+            output_dir=tmp_path,
+            storage_backend="json",
+            timeout_per_trial_sec=1.0,
+            timeout_backend="auto",
+            use_profile_auto_constraints=False,
+        ),
+    )
+    assert res.trials_count_by_status["completed"] == 1
+    assert any(
+        d.code == "RUNNER_TIMEOUT_THREAD_FALLBACK"
+        for trial in res.all_trials
+        for d in trial.diagnostics
+    )
+
+
+def test_process_timeout_backend_runs_picklable_runner(tmp_path):
+    res = optimize(
+        [Parameter("x", "int", 1, 1, 1, 1)],
+        process_timeout_fast_runner,
+        OptimizerConfig(
+            output_dir=tmp_path,
+            storage_backend="json",
+            timeout_per_trial_sec=1.0,
+            timeout_backend="process",
+            use_profile_auto_constraints=False,
+        ),
+    )
+    assert res.trials_count_by_status["completed"] == 1
+    assert res.best_trial.metrics["net_profit"] == 1
 
 
 def test_baseline_comparison_warns_when_recommendation_worse(tmp_path):

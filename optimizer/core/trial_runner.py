@@ -1,4 +1,7 @@
 import concurrent.futures
+import multiprocessing as mp
+import pickle
+import queue
 import time
 import traceback
 from dataclasses import dataclass
@@ -42,6 +45,70 @@ def now_ms():
     return int(time.time() * 1000)
 
 
+def _invoke_runner(runner, payload):
+    return runner(payload)
+
+
+def _runner_process_entry(out, runner, payload):
+    try:
+        out.put(("ok", _invoke_runner(runner, payload)))
+    except BaseException as exc:  # pragma: no cover - exercised through parent process result
+        out.put(("err", exc.__class__.__name__, str(exc), traceback.format_exc()))
+
+
+def _is_picklable(value):
+    try:
+        pickle.dumps(value)
+    except Exception:
+        return False
+    return True
+
+
+def _call_runner_in_process(runner, payload, timeout):
+    if timeout is None or timeout <= 0:
+        return _invoke_runner(runner, payload)
+    ctx = mp.get_context("spawn")
+    out = ctx.Queue(maxsize=1)
+    proc = ctx.Process(target=_runner_process_entry, args=(out, runner, payload))
+    proc.start()
+    proc.join(timeout)
+    if proc.is_alive():
+        proc.terminate()
+        proc.join()
+        raise concurrent.futures.TimeoutError("trial timeout")
+    try:
+        status, *parts = out.get_nowait()
+    except queue.Empty:
+        if proc.exitcode == 0:
+            raise RuntimeError("runner process exited without a result")
+        raise RuntimeError(f"runner process exited with code {proc.exitcode}")
+    if status == "ok":
+        return parts[0]
+    exc_name, message, tb = parts
+    raise RuntimeError(f"{exc_name}: {message}\n{tb}")
+
+
+def _select_timeout_backend(config, runner, payload, diagnostics, trial_id, params_hash):
+    backend = getattr(config, "timeout_backend", "thread")
+    timeout = getattr(config, "timeout_per_trial_sec", None)
+    if backend == "thread" or timeout is None or timeout <= 0:
+        return "thread"
+    if _is_picklable((runner, payload)):
+        return "process"
+    if backend == "process":
+        raise ValueError("process timeout backend requires a picklable runner and request")
+    diagnostics.append(
+        Diagnostic(
+            "RUNNER_TIMEOUT_THREAD_FALLBACK",
+            "runner/request is not picklable; timeout isolation fell back to thread backend",
+            "warning",
+            trial_id,
+            params_hash,
+        )
+    )
+    return "thread"
+
+
 def _call_with_timeout(fn, timeout):
     if timeout is None or timeout <= 0:
         return fn()
@@ -53,6 +120,12 @@ def _call_with_timeout(fn, timeout):
         return fut.result(timeout=timeout)
     finally:
         ex.shutdown(wait=False, cancel_futures=True)
+
+
+def _call_runner_with_timeout(runner, payload, timeout, backend):
+    if backend == "process":
+        return _call_runner_in_process(runner, payload, timeout)
+    return _call_with_timeout(lambda: _invoke_runner(runner, payload), timeout)
 
 
 def _required_metrics(config):
@@ -243,7 +316,15 @@ def run_one(
                     "optimizer_config_hash": config_hash,
                 },
             )
-            raw = _call_with_timeout(lambda: runner(req), config.timeout_per_trial_sec)
+            timeout_backend = _select_timeout_backend(
+                config, runner, req, diags, trial_id, params_hash
+            )
+            raw = _call_runner_with_timeout(
+                runner,
+                req,
+                config.timeout_per_trial_sec,
+                timeout_backend,
+            )
         else:
             if outputs or config.early_stop_enabled:
                 diags.append(
@@ -255,7 +336,15 @@ def run_one(
                         params_hash,
                     )
                 )
-            raw = _call_with_timeout(lambda: runner(params), config.timeout_per_trial_sec)
+            timeout_backend = _select_timeout_backend(
+                config, runner, params, diags, trial_id, params_hash
+            )
+            raw = _call_runner_with_timeout(
+                runner,
+                params,
+                config.timeout_per_trial_sec,
+                timeout_backend,
+            )
         response = _normalize_runner_response(raw, trial_id, params_hash)
         diags.extend(response.diagnostics)
         runner_errors = [d for d in diags if getattr(d, "severity", None) == "error"]

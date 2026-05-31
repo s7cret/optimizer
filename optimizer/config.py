@@ -84,6 +84,7 @@ class OptimizerConfig:
     robustness_min_neighbors: int = 8
     max_parallel: int = 1
     parallel_backend: Literal["process", "thread"] = "thread"
+    timeout_backend: Literal["thread", "process", "auto"] = "thread"
     max_parallel_over_cpu_policy: Literal["warn", "error", "allow"] = "warn"
     ordered_results: bool = False
     save_all_trials: bool = True
