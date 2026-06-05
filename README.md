@@ -42,3 +42,13 @@ docker compose run --rm optimizer
 ```
 
 For a public GitHub release checklist, see `docs/GITHUB_PUBLICATION.md`.
+
+## Support / Donations
+
+OpenPine development is independent and MIT-licensed. Donations are optional and help keep the public tooling maintained.
+
+- Telegram: https://t.me/OpenPine
+- TON: `UQAyIr2sQ4-_Q5L-4VINcU18khDas5GPbAlYEkQN6S_qzui2`
+- SOL: `EbxMUK2W4RGeQZCTRFrdgpEJvnqtyczPZvBrQa1cYJnQ`
+
+Support does not affect license terms, feature access, or project guarantees.
