@@ -27,7 +27,7 @@ print(result.recommended_trial.params)
 - JSON/CSV/Markdown reports, diff report, and plot export (HTML always; PNG/SVG when optional matplotlib is installed).
 - Public `optimize()` routing for `grid`, `random`, `adaptive_grid`, native sequential `genetic`, and dependency-free surrogate `bayesian` optimizers.
 - Range-aware walk-forward execution through `optimize(..., OptimizerConfig(algorithm='walk_forward'), start=..., end=...)` (or `optimizer.algorithms.walk_forward.run()`) for runners that support `RunnerRequest.range` or `with_range(start, end)`.
-- Local BacktestEngine adapter contract documented in `docs/BACKTEST_ENGINE_RUNNER.md`; it propagates hashes/diagnostics and fails trials on engine error diagnostics or missing required outputs.
+- Local BacktestEngine adapter support that propagates hashes/diagnostics and fails trials on engine error diagnostics or missing required outputs.
 - Advanced analyses: neighborhood robustness, sensitivity/parameter importance, train/test overfitting gap, profit concentration, trade bootstrap Monte Carlo, heatmap and walk-forward summaries.
 
 ## Graceful degradation
@@ -41,7 +41,6 @@ Optional/data-dependent features return structured `status`/`diagnostics` instea
 docker compose run --rm optimizer
 ```
 
-For a public GitHub release checklist, see `docs/GITHUB_PUBLICATION.md`.
 
 ## Support / Donations
 
