@@ -7,11 +7,14 @@ from concurrent.futures import (
 )
 import json
 import os
+import time
+import traceback
 from itertools import islice
 from optimizer.config import OptimizerConfig
 from optimizer.core.parameter_space import ParameterSpace
 from optimizer.core.trial_runner import run_one
 from optimizer.core.expression import stable_hash
+from optimizer.core.objective import objective_direction
 from optimizer.results.leaderboard import rank_trials
 from optimizer.results.result import OptimizerRunResult
 from optimizer.selection.selector import build_profiles, choose_recommended
@@ -218,6 +221,53 @@ def _stop_requested(trials, config):
     )
 
 
+def _failed_worker_trial(tid, params, exc, config, space_hash, config_hash):
+    direction = (
+        config.objective_direction
+        if config.objective_expression and config.objective_direction != "auto"
+        else (
+            "maximize"
+            if config.objective_expression
+            else objective_direction(config.objective, config.objective_direction)
+        )
+    )
+    params_hash = stable_hash(params)
+    diagnostic = Diagnostic(
+        "OPTIMIZER_WORKER_EXCEPTION",
+        f"{exc.__class__.__name__}: {exc}",
+        "error",
+        tid,
+        params_hash,
+    )
+    now = int(time.time() * 1000)
+    return Trial(
+        tid,
+        dict(params),
+        {},
+        None,
+        direction,
+        None,
+        False,
+        {},
+        0,
+        None,
+        None,
+        None,
+        None,
+        None,
+        0.0,
+        "failed",
+        parameter_space_hash=space_hash,
+        optimizer_config_hash=config_hash,
+        error_message=str(exc),
+        traceback=traceback.format_exc(),
+        diagnostics=[diagnostic],
+        started_at=now,
+        finished_at=now,
+        params_hash=params_hash,
+    )
+
+
 def _run_jobs(jobs, runner, config, space_hash, config_hash, store):
     trials = []
     if config.max_parallel > 1 and len(jobs) > 1:
@@ -234,7 +284,7 @@ def _run_jobs(jobs, runner, config, space_hash, config_hash, store):
                 except StopIteration:
                     return False
                 fut = ex.submit(run_one, tid, params, runner, config, space_hash, config_hash)
-                pending[fut] = tid
+                pending[fut] = (tid, params)
                 return True
 
             for _ in range(min(config.max_parallel, len(jobs))):
@@ -242,8 +292,11 @@ def _run_jobs(jobs, runner, config, space_hash, config_hash, store):
             while pending:
                 done, _ = wait(pending, return_when=FIRST_COMPLETED)
                 for f in done:
-                    pending.pop(f, None)
-                    t = f.result()
+                    tid, params = pending.pop(f)
+                    try:
+                        t = f.result()
+                    except Exception as exc:
+                        t = _failed_worker_trial(tid, params, exc, config, space_hash, config_hash)
                     store.save_trial(t)
                     trials.append(t)
                 if _stop_requested(trials, config):

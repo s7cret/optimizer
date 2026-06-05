@@ -15,4 +15,4 @@ class StorageBackend(ABC):
         ...
 
     def close(self):
-        pass
+        return None

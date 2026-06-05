@@ -73,7 +73,7 @@ def safe_eval(
         if isinstance(n, ast.Compare):
             left = ev(n.left)
             result = True
-            for op, comp in zip(n.ops, n.comparators):
+            for op, comp in zip(n.ops, n.comparators, strict=True):
                 right = ev(comp)
                 if isinstance(op, ast.Lt):
                     ok = left < right
@@ -106,8 +106,8 @@ def safe_eval_numeric(expr: str, names: dict[str, Any]) -> float:
     v = safe_eval(expr, names, mode="numeric")
     try:
         f = float(v)
-    except (TypeError, ValueError):
-        raise SafeExpressionError("numeric expression returned non-number")
+    except (TypeError, ValueError) as exc:
+        raise SafeExpressionError("numeric expression returned non-number") from exc
     if not math.isfinite(f):
         raise SafeExpressionError("numeric expression returned NaN/Inf")
     return f

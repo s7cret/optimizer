@@ -64,7 +64,7 @@ class ParameterSpace:
 
     def iter_grid_with_validity(self):
         for vals in product(*[self.values_for(p) for p in self.parameters]):
-            params = {p.name: v for p, v in zip(self.parameters, vals)}
+            params = {p.name: v for p, v in zip(self.parameters, vals, strict=True)}
             yield params, self.is_valid_combination(params)
 
     def generate_grid(self, max_combinations: int | None = None):

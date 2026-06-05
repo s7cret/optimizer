@@ -74,14 +74,22 @@ def _call_runner_in_process(runner, payload, timeout):
     proc.join(timeout)
     if proc.is_alive():
         proc.terminate()
-        proc.join()
+        proc.join(2)
+        if proc.is_alive():
+            proc.kill()
+            proc.join()
+        out.close()
+        out.cancel_join_thread()
         raise concurrent.futures.TimeoutError("trial timeout")
     try:
         status, *parts = out.get_nowait()
-    except queue.Empty:
+    except queue.Empty as exc:
         if proc.exitcode == 0:
-            raise RuntimeError("runner process exited without a result")
-        raise RuntimeError(f"runner process exited with code {proc.exitcode}")
+            raise RuntimeError("runner process exited without a result") from exc
+        raise RuntimeError(f"runner process exited with code {proc.exitcode}") from exc
+    finally:
+        out.close()
+        out.cancel_join_thread()
     if status == "ok":
         return parts[0]
     exc_name, message, tb = parts
@@ -100,7 +108,7 @@ def _select_timeout_backend(config, runner, payload, diagnostics, trial_id, para
     diagnostics.append(
         Diagnostic(
             "RUNNER_TIMEOUT_THREAD_FALLBACK",
-            "runner/request is not picklable; timeout isolation fell back to thread backend",
+            "runner/request is not picklable; thread timeout fallback may leave user code running",
             "warning",
             trial_id,
             params_hash,

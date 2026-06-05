@@ -10,7 +10,7 @@ def pareto_front(
                 continue
             better_or_equal = True
             strictly = False
-            for m, d in zip(metrics, directions):
+            for m, d in zip(metrics, directions, strict=True):
                 av = a.metrics.get(m)
                 bv = b.metrics.get(m)
                 if av is None or bv is None:
