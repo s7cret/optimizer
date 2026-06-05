@@ -33,3 +33,12 @@ print(result.recommended_trial.params)
 ## Graceful degradation
 
 Optional/data-dependent features return structured `status`/`diagnostics` instead of pretending success: image plots need matplotlib, trade analyses need saved trade lists, and walk-forward needs a range-aware runner. The package remains independent of concrete Pine/backtest engine implementations.
+
+## Installation, Docker, and Publication
+
+```bash
+./scripts/install.sh --dev
+docker compose run --rm optimizer
+```
+
+For a public GitHub release checklist, see `docs/GITHUB_PUBLICATION.md`.
