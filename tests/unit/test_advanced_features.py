@@ -81,7 +81,10 @@ def test_analysis_features_use_saved_trade_and_train_test_data(tmp_path):
 def test_profit_concentration_and_monte_carlo_trial_helpers():
     raw = {"closed_trades": [{"pnl": 5}, {"pnl": 1}, {"pnl": -1}]}
     assert concentration_trial(raw)["status"] == "ok"
-    assert monte_carlo_trial(raw, simulations=10, seed=1)["probability_positive"] is not None
+    assert (
+        monte_carlo_trial(raw, simulations=10, seed=1)["probability_positive"]
+        is not None
+    )
 
 
 def test_diff_and_plot_html(tmp_path):
@@ -103,7 +106,9 @@ def test_diff_and_plot_html(tmp_path):
 
 def test_walk_forward_range_runner(tmp_path):
     class R:
-        capabilities = RunnerCapabilities(supports_runner_request=True, supports_range=True)
+        capabilities = RunnerCapabilities(
+            supports_runner_request=True, supports_range=True
+        )
 
         def __call__(self, req):
             assert req.range is not None
@@ -117,7 +122,9 @@ def test_walk_forward_range_runner(tmp_path):
         max_trials=2,
         walk_forward_windows=2,
     )
-    wf = walk_forward_run([Parameter("x", "int", 1, 1, 2, 1)], R(), cfg, start=0, end=100)
+    wf = walk_forward_run(
+        [Parameter("x", "int", 1, 1, 2, 1)], R(), cfg, start=0, end=100
+    )
     assert wf["status"] == "ok"
     assert len(wf["windows"]) == 2
     assert wf["windows"][0]["test_trial"].status == "completed"

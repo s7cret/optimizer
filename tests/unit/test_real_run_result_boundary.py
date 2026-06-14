@@ -75,10 +75,14 @@ def test_unproven_realtime_data_query_is_rejected_before_runner_call(tmp_path):
         run_id="run-risky",
         strategy_ref=None,
         parameter_space=ParameterSpace([Parameter("x", "int", 1, 1, 1, 1)]),
-        data_query={"symbol": "BTCUSDT", "realtime": True, "duTickCompleteness": "blocked"},
+        data_query={
+            "symbol": "BTCUSDT",
+            "realtime": True,
+            "duTickCompleteness": "blocked",
+        },
     )
 
-    def runner(_params):  # pragma: no cover - must not be called
+    def runner(_params):
         raise AssertionError("runner should not be called")
 
     result = optimize_request(
@@ -94,7 +98,9 @@ def test_unproven_realtime_data_query_is_rejected_before_runner_call(tmp_path):
     assert result.status == "failed"
     assert result.trials == ()
     assert result.data_query == request.data_query
-    assert any(d.code == "UNPROVEN_REALTIME_INTRABAR_DATA_QUERY" for d in result.diagnostics)
+    assert any(
+        d.code == "UNPROVEN_REALTIME_INTRABAR_DATA_QUERY" for d in result.diagnostics
+    )
 
 
 def test_proven_realtime_data_query_is_allowed(tmp_path):

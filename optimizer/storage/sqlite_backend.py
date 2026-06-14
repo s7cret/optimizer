@@ -73,7 +73,8 @@ class SQLiteStorage:
 
     def load_trials_raw(self):
         return [
-            json.loads(r[0]) for r in self.conn.execute("SELECT payload FROM trials ORDER BY id")
+            json.loads(r[0])
+            for r in self.conn.execute("SELECT payload FROM trials ORDER BY id")
         ]
 
     def close(self):

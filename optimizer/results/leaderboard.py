@@ -22,8 +22,12 @@ def _trial_compare(config):
         return objective_sort_value(float(value), direction)
 
     def compare(left, right):
-        left_primary = objective_sort_value(left.objective_value, left.objective_direction)
-        right_primary = objective_sort_value(right.objective_value, right.objective_direction)
+        left_primary = objective_sort_value(
+            left.objective_value, left.objective_direction
+        )
+        right_primary = objective_sort_value(
+            right.objective_value, right.objective_direction
+        )
         if abs(left_primary - right_primary) > epsilon:
             return -1 if left_primary > right_primary else 1
         left_secondary = secondary_value(left)
@@ -41,10 +45,14 @@ def _trial_compare(config):
 
 
 def rank_trials(trials, config=None):
-    completed = [t for t in trials if t.status == "completed" and t.objective_value is not None]
+    completed = [
+        t for t in trials if t.status == "completed" and t.objective_value is not None
+    ]
     if config is None:
         completed.sort(
-            key=lambda t: objective_sort_value(t.objective_value, t.objective_direction),
+            key=lambda t: objective_sort_value(
+                t.objective_value, t.objective_direction
+            ),
             reverse=True,
         )
     else:

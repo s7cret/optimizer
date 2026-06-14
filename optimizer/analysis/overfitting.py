@@ -17,7 +17,9 @@ def analyze(trials: list[Any], metric: str = "net_profit") -> dict[str, object]:
         if getattr(t, "status", None) != "completed":
             continue
         train = _metric(t.metrics, metric, "train")
-        test = _metric(t.metrics, metric, "test") or _metric(t.metrics, metric, "validation")
+        test = _metric(t.metrics, metric, "test") or _metric(
+            t.metrics, metric, "validation"
+        )
         if train is None or test is None:
             scores[t.id] = None
             gaps[t.id] = None
@@ -32,13 +34,15 @@ def analyze(trials: list[Any], metric: str = "net_profit") -> dict[str, object]:
         "scores_by_trial_id": scores,
         "generalization_gap_by_trial_id": gaps,
         "average_score": mean(valid) if valid else None,
-        "diagnostics": []
-        if valid
-        else [
-            {
-                "code": "OVERFITTING_REQUIRES_TRAIN_TEST_METRICS",
-                "severity": "warning",
-                "message": "Expected train_/test_ metric pairs",
-            }
-        ],
+        "diagnostics": (
+            []
+            if valid
+            else [
+                {
+                    "code": "OVERFITTING_REQUIRES_TRAIN_TEST_METRICS",
+                    "severity": "warning",
+                    "message": "Expected train_/test_ metric pairs",
+                }
+            ]
+        ),
     }

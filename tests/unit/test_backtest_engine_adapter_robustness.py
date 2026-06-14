@@ -15,7 +15,9 @@ class FakeResult:
     equity_curve: list[dict] | None = field(default_factory=lambda: [{"equity": 10.0}])
     warnings: list[dict] = field(default_factory=list)
     errors: list[dict] = field(default_factory=list)
-    config_snapshot: dict = field(default_factory=lambda: {"symbol": "S", "timeframe": "1D"})
+    config_snapshot: dict = field(
+        default_factory=lambda: {"symbol": "S", "timeframe": "1D"}
+    )
     data_fingerprint: str = "data"
     strategy_fingerprint: str = "strategy"
     runtime_fingerprint: str = "runtime"
@@ -60,13 +62,18 @@ def test_engine_failed_status_becomes_failed_trial_with_diagnostics(tmp_path):
     trial = opt.all_trials[0]
 
     assert trial.status == "failed"
-    assert trial.error_message and "BACKTEST_ENGINE_RUN_NOT_COMPLETED" in trial.error_message
+    assert (
+        trial.error_message
+        and "BACKTEST_ENGINE_RUN_NOT_COMPLETED" in trial.error_message
+    )
     assert any(d.code == "BACKTEST_ENGINE_RUN_NOT_COMPLETED" for d in trial.diagnostics)
 
 
 def test_missing_required_output_fails_post_run(tmp_path):
     result = FakeResult(equity_curve=None)
-    opt = optimize(one_param(), adapter_for(result), cfg(tmp_path, objective="sharpe_ratio"))
+    opt = optimize(
+        one_param(), adapter_for(result), cfg(tmp_path, objective="sharpe_ratio")
+    )
     trial = opt.all_trials[0]
 
     assert trial.status == "failed"
@@ -75,10 +82,14 @@ def test_missing_required_output_fails_post_run(tmp_path):
 
 def test_bad_metric_type_or_nan_fails_as_missing_required_metric(tmp_path):
     for bad in ("not-a-number", float("nan")):
-        opt = optimize(one_param(), adapter_for(FakeResult(net_profit=bad)), cfg(tmp_path))
+        opt = optimize(
+            one_param(), adapter_for(FakeResult(net_profit=bad)), cfg(tmp_path)
+        )
         trial = opt.all_trials[0]
         assert trial.status == "failed"
-        assert any(d.code == "BACKTEST_ENGINE_BAD_METRIC_VALUE" for d in trial.diagnostics)
+        assert any(
+            d.code == "BACKTEST_ENGINE_BAD_METRIC_VALUE" for d in trial.diagnostics
+        )
 
 
 def test_runner_request_carries_seed_only_when_capability_is_declared(tmp_path):

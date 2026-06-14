@@ -3,7 +3,13 @@ import subprocess
 import sys
 import time
 
-from optimizer import OptimizerConfig, Parameter, RunnerCapabilities, dry_run_validate, optimize
+from optimizer import (
+    OptimizerConfig,
+    Parameter,
+    RunnerCapabilities,
+    dry_run_validate,
+    optimize,
+)
 
 
 def test_non_best_objective_recommendation_never_violates_hard_constraints(tmp_path):
@@ -84,7 +90,9 @@ def test_adaptive_grid_refinement_uses_minimize_direction(tmp_path):
     assert seen[3] == 1
 
 
-def test_random_invalid_cross_constraint_combos_are_not_persisted_as_production_trials(tmp_path):
+def test_random_invalid_cross_constraint_combos_are_not_persisted_as_production_trials(
+    tmp_path,
+):
     cfg = OptimizerConfig(
         algorithm="random",
         output_dir=tmp_path,
@@ -125,14 +133,16 @@ def test_required_output_capability_gap_fails_before_runner_call(tmp_path):
             supported_outputs=set(),
         )
 
-        def __call__(self, req):  # pragma: no cover - must not be called
+        def __call__(self, req):
             raise AssertionError("runner should not be called")
 
     res = optimize(
         [Parameter("x", "int", 1, 1, 1, 1)],
         R(),
         OptimizerConfig(
-            output_dir=tmp_path, storage_backend="json", use_profile_auto_constraints=False
+            output_dir=tmp_path,
+            storage_backend="json",
+            use_profile_auto_constraints=False,
         ),
     )
 
@@ -161,7 +171,9 @@ def test_runner_fingerprint_callable_is_invoked_and_persisted(tmp_path):
         [Parameter("x", "int", 1, 1, 1, 1)],
         R(),
         OptimizerConfig(
-            output_dir=tmp_path, storage_backend="json", use_profile_auto_constraints=False
+            output_dir=tmp_path,
+            storage_backend="json",
+            use_profile_auto_constraints=False,
         ),
     )
 
@@ -169,15 +181,22 @@ def test_runner_fingerprint_callable_is_invoked_and_persisted(tmp_path):
     assert meta["runner_fingerprint"] == "runner-v1"
 
 
-def test_placeholder_cli_commands_exit_nonzero(tmp_path):
+def test_removed_cli_commands_exit_nonzero(tmp_path):
     proc = subprocess.run(
-        [sys.executable, "-m", "optimizer.cli.main", "plot", "--result-dir", str(tmp_path)],
+        [
+            sys.executable,
+            "-m",
+            "optimizer.cli.main",
+            "plot",
+            "--result-dir",
+            str(tmp_path),
+        ],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
     assert proc.returncode == 2
-    assert "no standalone CLI implementation" in proc.stderr
+    assert "invalid choice" in proc.stderr
 
 
 def test_penalty_mode_hard_constraint_violators_are_not_recommended(tmp_path):

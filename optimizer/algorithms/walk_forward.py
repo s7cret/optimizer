@@ -1,5 +1,6 @@
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 from typing import Any
 from optimizer.config import OptimizerConfig
 from optimizer.protocols import RunnerRequest
@@ -11,7 +12,9 @@ def _request_with_range(
     tag: str,
     extra_params: dict[str, object] | None = None,
 ) -> RunnerRequest:
-    params = request.params if extra_params is None else {**request.params, **extra_params}
+    params = (
+        request.params if extra_params is None else {**request.params, **extra_params}
+    )
     return replace(
         request,
         params=params,
@@ -91,7 +94,9 @@ def ranged_runner(runner: Any, range_: tuple[int, int], tag: str) -> Any:
     )
 
 
-def _pre_bars_runner(runner: Any, range_: tuple[int, int], tag: str, pre_bars: int) -> Any:
+def _pre_bars_runner(
+    runner: Any, range_: tuple[int, int], tag: str, pre_bars: int
+) -> Any:
     """Create a range-aware runner that injects _effective_pre_bars."""
     caps = getattr(runner, "capabilities", None)
     if not (
@@ -109,7 +114,9 @@ def _pre_bars_runner(runner: Any, range_: tuple[int, int], tag: str, pre_bars: i
     )
 
 
-def run(parameters: Any, runner: Any, base_config: OptimizerConfig, *, start: int, end: int):
+def run(
+    parameters: Any, runner: Any, base_config: OptimizerConfig, *, start: int, end: int
+):
     from optimizer.optimizer import optimize
 
     results = []
@@ -129,16 +136,26 @@ def run(parameters: Any, runner: Any, base_config: OptimizerConfig, *, start: in
     ):
         cfg = OptimizerConfig(**base_config.to_dict())
         cfg.output_dir = Path(base_config.output_dir) / f"walk_forward_{idx}"
-        cfg.algorithm = "grid" if base_config.algorithm == "walk_forward" else base_config.algorithm
-        train_res = optimize(parameters, ranged_runner(runner, w["train"], "train"), cfg)
-        best = train_res.recommended_trial.params if train_res.recommended_trial else None
+        cfg.algorithm = (
+            "grid" if base_config.algorithm == "walk_forward" else base_config.algorithm
+        )
+        train_res = optimize(
+            parameters, ranged_runner(runner, w["train"], "train"), cfg
+        )
+        best = (
+            train_res.recommended_trial.params if train_res.recommended_trial else None
+        )
         test_trial = None
         if best is not None:
             test_cfg = OptimizerConfig(**cfg.to_dict())
-            test_cfg.output_dir = Path(base_config.output_dir) / f"walk_forward_{idx}_test"
+            test_cfg.output_dir = (
+                Path(base_config.output_dir) / f"walk_forward_{idx}_test"
+            )
             test_cfg.max_trials = 1
             if supports_pre:
-                test_runner = _pre_bars_runner(runner, w["test"], "test", pre_bars)
+                test_runner = _pre_bars_runner(
+                    runner, w["test"], "test", cast(int, pre_bars)
+                )
             else:
                 test_runner = ranged_runner(runner, w["test"], "test")
             from optimizer.core.trial_runner import run_one
@@ -152,7 +169,12 @@ def run(parameters: Any, runner: Any, base_config: OptimizerConfig, *, start: in
                 "walk_forward",
             )
         results.append(
-            {"window": idx, "ranges": w, "train_result": train_res, "test_trial": test_trial}
+            {
+                "window": idx,
+                "ranges": w,
+                "train_result": train_res,
+                "test_trial": test_trial,
+            }
         )
     if not results:
         raise ValueError(

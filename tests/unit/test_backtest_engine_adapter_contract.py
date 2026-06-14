@@ -12,9 +12,13 @@ class FakeBacktestResult:
     status: str = "completed"
     closed_trades: list[dict] = field(default_factory=lambda: [{"id": "t1"}])
     equity_curve: list[dict] = field(default_factory=lambda: [{"equity": 10012.0}])
-    warnings: list[dict] = field(default_factory=lambda: [{"code": "ENGINE_NOTE", "message": "ok"}])
+    warnings: list[dict] = field(
+        default_factory=lambda: [{"code": "ENGINE_NOTE", "message": "ok"}]
+    )
     errors: list[dict] = field(default_factory=list)
-    config_snapshot: dict = field(default_factory=lambda: {"symbol": "S", "timeframe": "1D"})
+    config_snapshot: dict = field(
+        default_factory=lambda: {"symbol": "S", "timeframe": "1D"}
+    )
     data_fingerprint: str = "data-1"
     strategy_fingerprint: str = "strategy-1"
     runtime_fingerprint: str = "runtime-1"
@@ -37,7 +41,9 @@ class FakeStrategy:
 
 
 def cfg(tmp_path):
-    return OptimizerConfig(output_dir=tmp_path, storage_backend="json", use_profile_auto_constraints=False)
+    return OptimizerConfig(
+        output_dir=tmp_path, storage_backend="json", use_profile_auto_constraints=False
+    )
 
 
 def test_backtest_engine_runner_adapter_propagates_metrics_hashes_and_lineage(tmp_path):
@@ -80,5 +86,8 @@ def test_backtest_engine_runner_adapter_failed_status_is_diagnostic(tmp_path):
     trial = res.all_trials[0]
 
     assert trial.status == "failed"
-    assert trial.error_message and "BACKTEST_ENGINE_RUN_NOT_COMPLETED" in trial.error_message
+    assert (
+        trial.error_message
+        and "BACKTEST_ENGINE_RUN_NOT_COMPLETED" in trial.error_message
+    )
     assert any(d.code == "BACKTEST_ENGINE_RUN_NOT_COMPLETED" for d in trial.diagnostics)

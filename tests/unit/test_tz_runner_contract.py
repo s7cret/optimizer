@@ -1,4 +1,10 @@
-from optimizer import OptimizerConfig, Parameter, RunnerCapabilities, RunnerResponse, optimize
+from optimizer import (
+    OptimizerConfig,
+    Parameter,
+    RunnerCapabilities,
+    RunnerResponse,
+    optimize,
+)
 from optimizer.core.trial_runner import _normalize_runner_response
 
 
@@ -16,7 +22,7 @@ class ContractRunner:
     )
 
     def __call__(self, req):
-        assert req.contract == "pain.optimizer_runner.v1"
+        assert req.contract == "pine.optimizer_runner.v1"
         assert req.fingerprints["parameter_space_hash"]
         return RunnerResponse(
             metrics={
@@ -31,7 +37,9 @@ class ContractRunner:
                 "runner_fingerprint": "r1",
                 "engine_config_hash": "e1",
             },
-            diagnostics=[{"code": "RUNNER_NOTE", "message": "ok", "severity": "warning"}],
+            diagnostics=[
+                {"code": "RUNNER_NOTE", "message": "ok", "severity": "warning"}
+            ],
         )
 
 
@@ -50,7 +58,7 @@ def test_runner_request_response_contract_and_hashes(tmp_path):
 def test_runner_response_normalizes_to_typed_boundary() -> None:
     response = _normalize_runner_response(
         {
-            "contract": "pain.optimizer_runner.v1",
+            "contract": "pine.optimizer_runner.v1",
             "metrics": {"net_profit": 1},
             "hashes": {"content_hash": "abc"},
             "trades_available": True,
@@ -74,11 +82,16 @@ class BadContractRunner:
     capabilities = RunnerCapabilities(supports_runner_request=True)
 
     def __call__(self, req):
-        return {"contract": "wrong", "metrics": {"net_profit": 1, "max_drawdown_percent": 1}}
+        return {
+            "contract": "wrong",
+            "metrics": {"net_profit": 1, "max_drawdown_percent": 1},
+        }
 
 
 def test_runner_response_contract_mismatch_fails_closed(tmp_path):
-    res = optimize([Parameter("x", "int", 1, 1, 1, 1)], BadContractRunner(), cfg(tmp_path))
+    res = optimize(
+        [Parameter("x", "int", 1, 1, 1, 1)], BadContractRunner(), cfg(tmp_path)
+    )
     trial = res.all_trials[0]
     assert trial.status == "failed"
     assert "contract mismatch" in trial.error_message
@@ -95,7 +108,9 @@ class MissingRequiredOutputRunner:
         return RunnerResponse(
             metrics={"profit_concentration_score": 1.0},
             trades_available=False,
-            diagnostics=[{"code": "NO_TRADES_COLLECTED", "message": "closed trades unavailable"}],
+            diagnostics=[
+                {"code": "NO_TRADES_COLLECTED", "message": "closed trades unavailable"}
+            ],
         )
 
 

@@ -4,6 +4,7 @@ import pickle
 import queue
 import time
 import traceback
+import warnings
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,8 +18,7 @@ from optimizer.results.trial import Trial
 from optimizer.core.diagnostic import Diagnostic
 from optimizer.protocols import RunnerRequest
 from optimizer.version import __version__
-
-RUNNER_CONTRACT = "pain.optimizer_runner.v1"
+from optimizer.core.contracts import ACCEPTED_RUNNER_CONTRACTS, RUNNER_CONTRACT
 
 
 @dataclass(frozen=True)
@@ -52,7 +52,7 @@ def _invoke_runner(runner, payload):
 def _runner_process_entry(out, runner, payload):
     try:
         out.put(("ok", _invoke_runner(runner, payload)))
-    except BaseException as exc:  # pragma: no cover - exercised through parent process result
+    except BaseException as exc:
         out.put(("err", exc.__class__.__name__, str(exc), traceback.format_exc()))
 
 
@@ -67,10 +67,16 @@ def _is_picklable(value):
 def _call_runner_in_process(runner, payload, timeout):
     if timeout is None or timeout <= 0:
         return _invoke_runner(runner, payload)
-    ctx = mp.get_context("spawn")
+    ctx = (
+        mp.get_context("fork")
+        if "fork" in mp.get_all_start_methods()
+        else mp.get_context("spawn")
+    )
     out = ctx.Queue(maxsize=1)
     proc = ctx.Process(target=_runner_process_entry, args=(out, runner, payload))
-    proc.start()
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        proc.start()
     proc.join(timeout)
     if proc.is_alive():
         proc.terminate()
@@ -96,7 +102,9 @@ def _call_runner_in_process(runner, payload, timeout):
     raise RuntimeError(f"{exc_name}: {message}\n{tb}")
 
 
-def _select_timeout_backend(config, runner, payload, diagnostics, trial_id, params_hash):
+def _select_timeout_backend(
+    config, runner, payload, diagnostics, trial_id, params_hash
+):
     backend = getattr(config, "timeout_backend", "thread")
     timeout = getattr(config, "timeout_per_trial_sec", None)
     if backend == "thread" or timeout is None or timeout <= 0:
@@ -104,7 +112,9 @@ def _select_timeout_backend(config, runner, payload, diagnostics, trial_id, para
     if _is_picklable((runner, payload)):
         return "process"
     if backend == "process":
-        raise ValueError("process timeout backend requires a picklable runner and request")
+        raise ValueError(
+            "process timeout backend requires a picklable runner and request"
+        )
     diagnostics.append(
         Diagnostic(
             "RUNNER_TIMEOUT_THREAD_FALLBACK",
@@ -147,7 +157,13 @@ def _required_metrics(config):
         required.add(config.objective_secondary)
     if config.report_profiles and not config.objective_expression:
         required |= reg.profile_required_metrics(
-            ["best_profit", "best_drawdown", "best_profit_factor", "best_sharpe", "best_balanced"]
+            [
+                "best_profit",
+                "best_drawdown",
+                "best_profit_factor",
+                "best_sharpe",
+                "best_balanced",
+            ]
         )
     return reg.get_required_metrics(required)
 
@@ -180,16 +196,22 @@ def _response_diagnostics(raw, trial_id, params_hash):
 
 def _normalize_runner_response(raw, trial_id, params_hash):
     contract = _response_field(raw, "contract")
-    has_response_shape = contract is not None or _response_field(raw, "metrics") is not None
-    if contract is not None and contract != RUNNER_CONTRACT:
-        raise ValueError(f"runner response contract mismatch: {contract!r} != {RUNNER_CONTRACT!r}")
+    has_response_shape = (
+        contract is not None or _response_field(raw, "metrics") is not None
+    )
+    if contract is not None and contract not in ACCEPTED_RUNNER_CONTRACTS:
+        raise ValueError(
+            f"runner response contract mismatch: {contract!r} != {RUNNER_CONTRACT!r}"
+        )
     if not has_response_shape:
         return NormalizedRunnerResponse(metrics_source=raw, hashes={}, diagnostics=[])
-    metrics = _response_field(raw, "metrics", {}) or {}
+    raw_metrics = _response_field(raw, "metrics", {})
+    metrics = {} if raw_metrics is None else raw_metrics
     if not isinstance(metrics, dict):
         raise ValueError("runner response metrics must be a dict")
-    hashes = _response_field(raw, "hashes", {}) or {}
-    if hashes is not None and not isinstance(hashes, dict):
+    raw_hashes = _response_field(raw, "hashes", {})
+    hashes = {} if raw_hashes is None else raw_hashes
+    if not isinstance(hashes, dict):
         raise ValueError("runner response hashes must be a dict")
     return NormalizedRunnerResponse(
         metrics_source=metrics,
@@ -250,7 +272,14 @@ def _failed_trial(
 
 
 def run_one(
-    trial_id, params, runner, config, space_hash, config_hash, is_baseline=False, baseline_name=None
+    trial_id,
+    params,
+    runner,
+    config,
+    space_hash,
+    config_hash,
+    is_baseline=False,
+    baseline_name=None,
 ):
     started = now_ms()
     t0 = time.perf_counter()
@@ -315,9 +344,9 @@ def run_one(
                 trial_id=trial_id,
                 required_metrics=required,
                 required_outputs=outputs,
-                early_stop_conditions=config.early_stop_conditions
-                if config.early_stop_enabled
-                else [],
+                early_stop_conditions=(
+                    config.early_stop_conditions if config.early_stop_enabled else []
+                ),
                 seed=config.seed if getattr(caps, "supports_seed", False) else None,
                 fingerprints={
                     "parameter_space_hash": space_hash,
@@ -384,7 +413,11 @@ def run_one(
                 unavailable_outputs.add("equity_curve")
             if "summary_metrics" in outputs and not response.summary_metrics_available:
                 unavailable_outputs.add("summary_metrics")
-        if caps and getattr(caps, "supports_required_outputs", False) and unavailable_outputs:
+        if (
+            caps
+            and getattr(caps, "supports_required_outputs", False)
+            and unavailable_outputs
+        ):
             err = "runner response missing required outputs: " + ", ".join(
                 sorted(unavailable_outputs)
             )
@@ -423,10 +456,18 @@ def run_one(
             and metrics.get("net_profit") is not None
             and metrics.get("max_drawdown")
         ):
-            metrics["return_drawdown_ratio"] = metrics["net_profit"] / abs(metrics["max_drawdown"])
+            metrics["return_drawdown_ratio"] = metrics["net_profit"] / abs(
+                metrics["max_drawdown"]
+            )
         missing_required = set(required) - set(metrics)
-        if caps and getattr(caps, "supports_required_outputs", False) and missing_required:
-            err = "runner response missing required metrics: " + ", ".join(sorted(missing_required))
+        if (
+            caps
+            and getattr(caps, "supports_required_outputs", False)
+            and missing_required
+        ):
+            err = "runner response missing required metrics: " + ", ".join(
+                sorted(missing_required)
+            )
             diags.append(
                 Diagnostic(
                     "RUNNER_REQUIRED_METRICS_MISSING",
@@ -456,8 +497,12 @@ def run_one(
                 is_baseline,
                 baseline_name,
             )
-        obj = compute_objective(metrics, config.objective, direction, config.objective_expression)
-        c = evaluate_constraints(metrics, constraints, trial_id=trial_id, params_hash=params_hash)
+        obj = compute_objective(
+            metrics, config.objective, direction, config.objective_expression
+        )
+        c = evaluate_constraints(
+            metrics, constraints, trial_id=trial_id, params_hash=params_hash
+        )
         diags.extend(c.diagnostics)
         effective_obj = obj
         if (
@@ -513,6 +558,7 @@ def run_one(
             params_hash,
             obj,
         )
+        trial.runtime_fingerprint = response.hash("runtime_fingerprint", raw)
         return trial
     except concurrent.futures.TimeoutError:
         status = "failed"

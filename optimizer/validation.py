@@ -15,9 +15,17 @@ def dry_run_validate(
 ) -> DryRunValidationResult:
     config = config or OptimizerConfig()
     config.output_dir = Path(config.output_dir)
-    space = parameters if isinstance(parameters, ParameterSpace) else ParameterSpace(
-        parameters,
-        cross_constraints if cross_constraints is not None else config.cross_constraints,
+    space = (
+        parameters
+        if isinstance(parameters, ParameterSpace)
+        else ParameterSpace(
+            parameters,
+            (
+                cross_constraints
+                if cross_constraints is not None
+                else config.cross_constraints
+            ),
+        )
     )
 
     grid_combinations = space.grid_size(respect_constraints=False)

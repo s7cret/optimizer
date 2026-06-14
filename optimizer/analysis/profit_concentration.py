@@ -5,7 +5,12 @@ def _trades_from(raw: Any) -> list[dict[str, Any]]:
     if raw is None:
         return []
     if isinstance(raw, dict):
-        trades = raw.get("closed_trades") or raw.get("trades") or raw.get("closedTrades") or []
+        trades = (
+            raw.get("closed_trades")
+            or raw.get("trades")
+            or raw.get("closedTrades")
+            or []
+        )
         return list(trades) if isinstance(trades, list) else []
     trades = getattr(raw, "closed_trades", None) or getattr(raw, "trades", None) or []
     return list(trades) if isinstance(trades, list) else []
@@ -45,7 +50,10 @@ def analyze(trials: list[Any]) -> dict[str, object]:
     for t in trials:
         raw = t.backtest_result or t.metrics
         item = analyze_trial(raw)
-        if item["status"] != "ok" and t.metrics.get("profit_concentration_score") is not None:
+        if (
+            item["status"] != "ok"
+            and t.metrics.get("profit_concentration_score") is not None
+        ):
             item = {
                 "status": "ok",
                 "trade_count": None,
@@ -57,13 +65,15 @@ def analyze(trials: list[Any]) -> dict[str, object]:
     return {
         "status": "ok" if ok else "insufficient_data",
         "by_trial_id": per,
-        "diagnostics": []
-        if ok
-        else [
-            {
-                "code": "PROFIT_CONCENTRATION_REQUIRES_TRADES",
-                "severity": "warning",
-                "message": "Expected closed_trades/trades with profit or pnl",
-            }
-        ],
+        "diagnostics": (
+            []
+            if ok
+            else [
+                {
+                    "code": "PROFIT_CONCENTRATION_REQUIRES_TRADES",
+                    "severity": "warning",
+                    "message": "Expected closed_trades/trades with profit or pnl",
+                }
+            ]
+        ),
     }

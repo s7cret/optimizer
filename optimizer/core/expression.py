@@ -28,7 +28,12 @@ def _apply_bin(op: ast.operator, a: Any, b: Any) -> Any:
     if isinstance(op, ast.Pow):
         if abs(float(b)) > _MAX_POW_ABS_EXPONENT:
             raise SafeExpressionError("power exponent too large")
-        return _finite(a**b)
+        try:
+            return _finite(a**b)
+        except OverflowError as exc:
+            raise SafeExpressionError(
+                "expression produced NaN/Inf/out-of-range value"
+            ) from exc
     if isinstance(op, ast.Add):
         return _finite(a + b)
     if isinstance(op, ast.Sub):
@@ -43,7 +48,10 @@ def _apply_bin(op: ast.operator, a: Any, b: Any) -> Any:
 
 
 def safe_eval(
-    expr: str, names: dict[str, Any], *, mode: Literal["numeric", "boolean", "any"] = "any"
+    expr: str,
+    names: dict[str, Any],
+    *,
+    mode: Literal["numeric", "boolean", "any"] = "any",
 ) -> Any:
     def ev(n):
         if isinstance(n, ast.Expression):
@@ -58,7 +66,9 @@ def safe_eval(
             if n.id in {"false", "False"}:
                 return False
             raise SafeExpressionError(f"unknown name {n.id}")
-        if isinstance(n, ast.UnaryOp) and isinstance(n.op, (ast.Not, ast.USub, ast.UAdd)):
+        if isinstance(n, ast.UnaryOp) and isinstance(
+            n.op, (ast.Not, ast.USub, ast.UAdd)
+        ):
             v = ev(n.operand)
             return (
                 (not bool(v))

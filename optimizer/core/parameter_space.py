@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from itertools import product
 import random
 from dataclasses import asdict
@@ -7,6 +7,17 @@ from optimizer.core.parameter import Parameter
 from optimizer.core.diagnostic import Diagnostic
 from optimizer.core.expression import safe_eval_bool, stable_hash
 from optimizer.errors import ParameterValidationError
+
+SUPPORTED_PARAMETER_TYPES = {"int", "float", "bool", "string", "enum"}
+
+
+def _decimal(value: object, name: str) -> Decimal:
+    if isinstance(value, bool) or value is None:
+        raise ParameterValidationError(f"{name} must be numeric")
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise ParameterValidationError(f"{name} must be numeric") from exc
 
 
 class ParameterSpace:
@@ -23,6 +34,10 @@ class ParameterSpace:
         if len(names) != len(set(names)):
             raise ParameterValidationError("duplicate parameter names")
         for p in self.parameters:
+            if p.param_type not in SUPPORTED_PARAMETER_TYPES:
+                raise ParameterValidationError(
+                    f"unsupported parameter type {p.param_type!r}"
+                )
             if not p.name or not p.name.replace("_", "").isalnum():
                 raise ParameterValidationError(f"invalid parameter name {p.name}")
             if (
@@ -30,10 +45,30 @@ class ParameterSpace:
                 and p.enabled
                 and (p.min_val is None or p.max_val is None or p.step is None)
             ):
-                raise ParameterValidationError(f"{p.name} requires min_val/max_val/step")
+                raise ParameterValidationError(
+                    f"{p.name} requires min_val/max_val/step"
+                )
+            if p.param_type in {"int", "float"} and p.enabled:
+                lo = _decimal(p.min_val, f"{p.name}.min_val")
+                hi = _decimal(p.max_val, f"{p.name}.max_val")
+                step = _decimal(p.step, f"{p.name}.step")
+                if step <= 0:
+                    raise ParameterValidationError(f"{p.name} step must be positive")
+                if hi < lo:
+                    raise ParameterValidationError(
+                        f"{p.name} max_val must be >= min_val"
+                    )
+                default = _decimal(p.default, f"{p.name}.default")
+                if p.param_type == "int" and not all(
+                    value == value.to_integral_value()
+                    for value in (default, lo, hi, step)
+                ):
+                    raise ParameterValidationError(
+                        f"{p.name} int parameter bounds/default must be integral"
+                    )
             if p.param_type in {"enum", "string"} and p.enabled and not p.options:
                 raise ParameterValidationError(f"{p.name} requires options")
-            if p.param_type == "bool" and p.default not in {True, False}:
+            if p.param_type == "bool" and not isinstance(p.default, bool):
                 raise ParameterValidationError(f"{p.name} bool default invalid")
 
     def values_for(self, p: Parameter):
@@ -44,11 +79,9 @@ class ParameterSpace:
         if p.param_type in {"enum", "string"}:
             return list(p.options or [p.default])
         vals = []
-        x = Decimal(str(p.min_val))
-        end = Decimal(str(p.max_val))
-        step = Decimal(str(p.step))
-        if step <= 0:
-            raise ParameterValidationError(f"{p.name} step must be positive")
+        x = _decimal(p.min_val, f"{p.name}.min_val")
+        end = _decimal(p.max_val, f"{p.name}.max_val")
+        step = _decimal(p.step, f"{p.name}.step")
         while x <= end:
             vals.append(int(x) if p.param_type == "int" else float(x))
             x += step
@@ -109,9 +142,13 @@ class ParameterSpace:
                 ds.append(Diagnostic("PARAM_MISSING", f"{p.name} missing", "error"))
                 continue
             v = params[p.name]
-            if p.param_type == "int" and not isinstance(v, int):
+            if p.param_type == "int" and (
+                isinstance(v, bool) or not isinstance(v, int)
+            ):
                 ds.append(Diagnostic("PARAM_TYPE", f"{p.name} not int", "error"))
-            if p.param_type == "float" and not isinstance(v, (int, float)):
+            if p.param_type == "float" and (
+                isinstance(v, bool) or not isinstance(v, (int, float))
+            ):
                 ds.append(Diagnostic("PARAM_TYPE", f"{p.name} not float", "error"))
             if p.param_type == "bool" and not isinstance(v, bool):
                 ds.append(Diagnostic("PARAM_TYPE", f"{p.name} not bool", "error"))
@@ -133,7 +170,9 @@ class ParameterSpace:
             if params.get(p.name) not in vals:
                 continue
             idx = vals.index(params[p.name])
-            for j in range(max(0, idx - radius_steps), min(len(vals), idx + radius_steps + 1)):
+            for j in range(
+                max(0, idx - radius_steps), min(len(vals), idx + radius_steps + 1)
+            ):
                 if j == idx:
                     continue
                 q = dict(params)
@@ -143,14 +182,19 @@ class ParameterSpace:
         return out
 
     def refine_around(
-        self, center_params, refinement_factor: float, min_step: dict[str, float] | None = None
+        self,
+        center_params,
+        refinement_factor: float,
+        min_step: dict[str, float] | None = None,
     ):
         candidates = [dict(center_params)]
         min_step = min_step or {}
         for p in self.parameters:
             if p.param_type not in {"int", "float"} or not p.enabled:
                 continue
-            step = max(float(p.step or 0) * refinement_factor, float(min_step.get(p.name, 0)))
+            step = max(
+                float(p.step or 0) * refinement_factor, float(min_step.get(p.name, 0))
+            )
             for delta in (-step, step):
                 q = dict(center_params)
                 q[p.name] = q[p.name] + delta
@@ -159,7 +203,7 @@ class ParameterSpace:
                     candidates.append(q)
         return candidates
 
-    def fingerprint(self):
+    def fingerprint(self) -> str:
         return stable_hash(
             {
                 "parameters": [asdict(p) for p in self.parameters],

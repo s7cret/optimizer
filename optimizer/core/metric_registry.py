@@ -36,7 +36,10 @@ class MetricRegistry:
             "net_profit", "runner", "maximize", required_outputs={"summary_metrics"}
         ),
         "net_profit_percent": MetricSpec(
-            "net_profit_percent", "runner", "maximize", required_outputs={"summary_metrics"}
+            "net_profit_percent",
+            "runner",
+            "maximize",
+            required_outputs={"summary_metrics"},
         ),
         "profit_factor": MetricSpec(
             "profit_factor", "runner", "maximize", required_outputs={"summary_metrics"}
@@ -51,7 +54,10 @@ class MetricRegistry:
             "max_drawdown", "runner", "minimize", required_outputs={"summary_metrics"}
         ),
         "max_drawdown_percent": MetricSpec(
-            "max_drawdown_percent", "runner", "minimize", required_outputs={"summary_metrics"}
+            "max_drawdown_percent",
+            "runner",
+            "minimize",
+            required_outputs={"summary_metrics"},
         ),
         "return_drawdown_ratio": MetricSpec(
             "return_drawdown_ratio",
@@ -92,7 +98,12 @@ class MetricRegistry:
         "best_drawdown": {"max_drawdown_percent"},
         "best_profit_factor": {"profit_factor"},
         "best_sharpe": {"sharpe_ratio"},
-        "best_balanced": {"net_profit", "max_drawdown_percent", "profit_factor", "sharpe_ratio"},
+        "best_balanced": {
+            "net_profit",
+            "max_drawdown_percent",
+            "profit_factor",
+            "sharpe_ratio",
+        },
         "most_robust": {"robustness_score"},
         "pareto_front": {"net_profit", "max_drawdown_percent"},
         "pareto_knee": {"net_profit", "max_drawdown_percent"},

@@ -17,11 +17,14 @@ class JsonStorage:
 
     def init_run(self, fingerprints):
         self._atomic_write(
-            self.meta_path, json.dumps(fingerprints, sort_keys=True, indent=2, default=str)
+            self.meta_path,
+            json.dumps(fingerprints, sort_keys=True, indent=2, default=str),
         )
 
     def load_meta(self):
-        return json.loads(self.meta_path.read_text()) if self.meta_path.exists() else None
+        return (
+            json.loads(self.meta_path.read_text()) if self.meta_path.exists() else None
+        )
 
     def save_trial(self, trial):
         rows = self.load_trials_raw()

@@ -31,5 +31,7 @@ class OptimizerRunRequest:
     parameter_space: ParameterSpace
     data_query: Any | None = None
     objective: ObjectiveSpec = field(default_factory=ObjectiveSpec)
-    constraints: OptimizationConstraints = field(default_factory=OptimizationConstraints)
+    constraints: OptimizationConstraints = field(
+        default_factory=OptimizationConstraints
+    )
     tags: dict[str, str] = field(default_factory=dict)

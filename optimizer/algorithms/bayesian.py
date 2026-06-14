@@ -27,7 +27,9 @@ def warmup(space: Any, config: Any) -> list[dict[str, object]]:
     rng = random.Random(config.seed)
     seen: set[str] = set()
     out: list[dict[str, object]] = []
-    target = min(config.bayesian_warmup_random_trials, config.bayesian_trials, config.max_trials)
+    target = min(
+        config.bayesian_warmup_random_trials, config.bayesian_trials, config.max_trials
+    )
     attempts = 0
     while len(out) < target and attempts < max(100, target * 50):
         attempts += 1

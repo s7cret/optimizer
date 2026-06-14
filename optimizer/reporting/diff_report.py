@@ -35,9 +35,11 @@ def diff(a: Any, b: Any) -> dict[str, object]:
         metric_changes[k] = {
             "a": av,
             "b": bv,
-            "delta": float(bv) - float(av)
-            if isinstance(av, (int, float)) and isinstance(bv, (int, float))
-            else None,
+            "delta": (
+                float(bv) - float(av)
+                if isinstance(av, (int, float)) and isinstance(bv, (int, float))
+                else None
+            ),
         }
     oa = ta.get("objective_value")
     ob = tb.get("objective_value")

@@ -19,5 +19,8 @@ def pareto_knee(trials, metrics=("max_drawdown_percent", "net_profit")):
         return 1.0 if hi == lo else (v - lo) / (hi - lo)
 
     return min(
-        vals, key=lambda r: math.dist((norm(r[1], minx, maxx), norm(r[2], miny, maxy)), (0, 1))
+        vals,
+        key=lambda r: math.dist(
+            (norm(r[1], minx, maxx), norm(r[2], miny, maxy)), (0, 1)
+        ),
     )[0]

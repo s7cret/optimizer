@@ -65,7 +65,11 @@ def build_profiles(trials, config):
     )
     for name, metric, reason in [
         ("best_profit", "net_profit", "highest net profit"),
-        ("best_drawdown", "max_drawdown_percent", "best drawdown by registry direction"),
+        (
+            "best_drawdown",
+            "max_drawdown_percent",
+            "best drawdown by registry direction",
+        ),
         ("best_profit_factor", "profit_factor", "highest profit factor"),
         ("best_sharpe", "sharpe_ratio", "highest Sharpe ratio"),
     ]:

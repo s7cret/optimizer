@@ -7,9 +7,9 @@ from optimizer.errors import ParameterValidationError
 
 @dataclass
 class OptimizerConfig:
-    algorithm: Literal["grid", "adaptive_grid", "random", "genetic", "bayesian", "walk_forward"] = (
-        "grid"
-    )
+    algorithm: Literal[
+        "grid", "adaptive_grid", "random", "genetic", "bayesian", "walk_forward"
+    ] = "grid"
     seed: int = 42
     objective: str = "net_profit"
     objective_direction: Literal["maximize", "minimize", "auto"] = "auto"
@@ -38,9 +38,9 @@ class OptimizerConfig:
     include_baseline_in_optimization_candidates: bool = False
     pareto_knee_enabled: bool = False
     pareto_knee_metrics: tuple[str, str] = ("max_drawdown_percent", "net_profit")
-    pareto_knee_method: Literal["distance_to_ideal", "max_curvature", "normalized_elbow"] = (
-        "distance_to_ideal"
-    )
+    pareto_knee_method: Literal[
+        "distance_to_ideal", "max_curvature", "normalized_elbow"
+    ] = "distance_to_ideal"
     constraints: dict[str, dict[str, float]] = field(default_factory=dict)
     cross_constraints: list[str] = field(default_factory=list)
     use_profile_auto_constraints: bool = True
@@ -74,8 +74,12 @@ class OptimizerConfig:
     walk_forward_train_ratio: float = 0.7
     walk_forward_anchor_mode: Literal["rolling", "expanding"] = "rolling"
     # D5-F: walk-forward prehistory options
-    walk_forward_include_prehistory: bool = False  # opt-in pre-bars before each test window
-    walk_forward_pre_bars: int | None = None  # number of pre-bars to fetch before test window
+    walk_forward_include_prehistory: bool = (
+        False  # opt-in pre-bars before each test window
+    )
+    walk_forward_pre_bars: int | None = (
+        None  # number of pre-bars to fetch before test window
+    )
     early_stop_enabled: bool = False
     early_stop_conditions: list[dict] = field(default_factory=list)
     include_early_stopped_in_recommendations: bool = False
@@ -115,7 +119,9 @@ class OptimizerConfig:
         if self.walk_forward_windows < 1:
             raise ParameterValidationError("walk_forward_windows must be >= 1")
         if not 0.0 < self.walk_forward_train_ratio < 1.0:
-            raise ParameterValidationError("walk_forward_train_ratio must be > 0 and < 1")
+            raise ParameterValidationError(
+                "walk_forward_train_ratio must be > 0 and < 1"
+            )
         if self.walk_forward_pre_bars is not None and self.walk_forward_pre_bars < 0:
             raise ParameterValidationError("walk_forward_pre_bars must be >= 0")
 

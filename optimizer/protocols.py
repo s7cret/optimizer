@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from optimizer.core.contracts import RUNNER_CONTRACT
+
 
 class BacktestRunner(Protocol):
     def __call__(self, params: dict[str, Any]) -> Any: ...
@@ -17,12 +19,12 @@ class RunnerRequest:
     seed: int | None = None
     tags: dict[str, str] = field(default_factory=dict)
     fingerprints: dict[str, str] = field(default_factory=dict)
-    contract: str = "pain.optimizer_runner.v1"
+    contract: str = RUNNER_CONTRACT
 
 
 @dataclass(frozen=True)
 class RunnerResponse:
-    contract: str = "pain.optimizer_runner.v1"
+    contract: str = RUNNER_CONTRACT
     metrics: dict[str, float] = field(default_factory=dict)
     raw_result: Any | None = None
     hashes: dict[str, str] = field(default_factory=dict)
@@ -52,4 +54,6 @@ class AdvancedBacktestRunner(Protocol):
 
 class RangeAwareBacktestRunner(Protocol):
     def __call__(self, params: dict[str, object]) -> object: ...
-    def with_range(self, start_time: int, end_time: int) -> "RangeAwareBacktestRunner": ...
+    def with_range(
+        self, start_time: int, end_time: int
+    ) -> "RangeAwareBacktestRunner": ...

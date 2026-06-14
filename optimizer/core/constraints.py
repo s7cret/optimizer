@@ -30,7 +30,9 @@ def _num(v: Any) -> float | None:
     return f if isfinite(f) else None
 
 
-def auto_constraints_for_profile(profile: str) -> dict[str, dict[str, float | str | bool]]:
+def auto_constraints_for_profile(
+    profile: str,
+) -> dict[str, dict[str, float | str | bool]]:
     if profile == "conservative":
         return {
             "max_drawdown_percent": {"max": 25.0, "hard": False},
@@ -53,7 +55,9 @@ def merge_constraints(config) -> dict[str, dict[str, Any]]:
         or config.constraints_merge_mode == "custom_only"
     ):
         return custom
-    auto = auto_constraints_for_profile(getattr(config, "selection_mode", "best_after_constraints"))
+    auto = auto_constraints_for_profile(
+        getattr(config, "selection_mode", "best_after_constraints")
+    )
     if config.constraints_merge_mode == "merge_auto_and_custom":
         out = {k: dict(v) for k, v in auto.items()}
         for metric, rules in custom.items():
@@ -95,7 +99,9 @@ def evaluate_constraints(
                 penalty += (v - float(rules["max"])) * float(rules.get("penalty", 1.0))
             if "eq" in rules and v != float(rules["eq"]):
                 failed.append(f"{v} != {rules['eq']}")
-                penalty += abs(v - float(rules["eq"])) * float(rules.get("penalty", 1.0))
+                penalty += abs(v - float(rules["eq"])) * float(
+                    rules.get("penalty", 1.0)
+                )
             if "neq" in rules and v == float(rules["neq"]):
                 failed.append(f"{v} == forbidden {rules['neq']}")
                 penalty += float(rules.get("penalty", 1.0))

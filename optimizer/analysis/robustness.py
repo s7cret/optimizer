@@ -8,7 +8,10 @@ def _key(params: dict[str, object]) -> str:
 
 
 def compute_neighborhood_robustness(
-    trials: list[Any], space: Any | None = None, radius_steps: int = 1, min_neighbors: int = 1
+    trials: list[Any],
+    space: Any | None = None,
+    radius_steps: int = 1,
+    min_neighbors: int = 1,
 ) -> dict[int, float | None]:
     completed = [
         t
@@ -38,7 +41,10 @@ def compute_neighborhood_robustness(
 
 
 def analyze(
-    trials: list[Any], space: Any | None = None, radius_steps: int = 1, min_neighbors: int = 1
+    trials: list[Any],
+    space: Any | None = None,
+    radius_steps: int = 1,
+    min_neighbors: int = 1,
 ) -> dict[str, object]:
     scores = compute_neighborhood_robustness(trials, space, radius_steps, min_neighbors)
     valid = {k: v for k, v in scores.items() if v is not None}
@@ -46,13 +52,15 @@ def analyze(
         "status": "ok" if valid else "insufficient_data",
         "scores_by_trial_id": scores,
         "average_score": mean(valid.values()) if valid else None,
-        "diagnostics": []
-        if valid
-        else [
-            {
-                "code": "ROBUSTNESS_INSUFFICIENT_NEIGHBORS",
-                "severity": "warning",
-                "message": "No trials had enough evaluated neighbors",
-            }
-        ],
+        "diagnostics": (
+            []
+            if valid
+            else [
+                {
+                    "code": "ROBUSTNESS_INSUFFICIENT_NEIGHBORS",
+                    "severity": "warning",
+                    "message": "No trials had enough evaluated neighbors",
+                }
+            ]
+        ),
     }

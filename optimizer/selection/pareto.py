@@ -1,5 +1,7 @@
 def pareto_front(
-    trials, metrics=("net_profit", "max_drawdown_percent"), directions=("maximize", "minimize")
+    trials,
+    metrics=("net_profit", "max_drawdown_percent"),
+    directions=("maximize", "minimize"),
 ):
     pts = [t for t in trials if t.status == "completed"]
     front = []

@@ -3,8 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, is_dataclass
 import math
-from typing import Any
+from typing import Any, cast
 
+from optimizer.core.contracts import ACCEPTED_RUNNER_CONTRACTS
 from optimizer.protocols import RunnerCapabilities, RunnerRequest, RunnerResponse
 
 
@@ -29,7 +30,7 @@ def _metric_dict(result: Any, required: set[str]) -> dict[str, float]:
 def _stable_hash(value: Any) -> str:
     try:
         from backtest_engine.core.deterministic_hash import sha256_obj
-    except Exception:  # pragma: no cover - optional dependency import guard
+    except Exception:
         from optimizer.core.expression import stable_hash
 
         return stable_hash(value)
@@ -65,7 +66,7 @@ def _diagnostics(result: Any) -> list[dict[str, Any]]:
     ):
         for item in items:
             if is_dataclass(item):
-                payload = asdict(item)
+                payload = asdict(cast(Any, item))
             elif isinstance(item, dict):
                 payload = dict(item)
             else:
@@ -75,6 +76,31 @@ def _diagnostics(result: Any) -> list[dict[str, Any]]:
             payload.setdefault("message", payload.get("message", str(item)))
             out.append(payload)
     return out
+
+
+def _run_engine(
+    engine: Any,
+    strategy: Any,
+    bars: Sequence[Any],
+    params: dict[str, Any],
+    effective_pre_bars: Any | None,
+) -> Any:
+    if effective_pre_bars is None:
+        return engine.run(strategy, bars=list(bars), params=params)
+    try:
+        import inspect
+
+        sig = inspect.signature(engine.run)
+    except (TypeError, ValueError):
+        return engine.run(strategy, bars=list(bars), params=params)
+    if "effective_pre_bars" not in sig.parameters:
+        return engine.run(strategy, bars=list(bars), params=params)
+    return engine.run(
+        strategy,
+        bars=list(bars),
+        params=params,
+        effective_pre_bars=effective_pre_bars,
+    )
 
 
 class BacktestEngineRunnerAdapter:
@@ -108,7 +134,7 @@ class BacktestEngineRunnerAdapter:
         self.static_params = dict(static_params or {})
 
     def __call__(self, request: RunnerRequest) -> RunnerResponse:
-        if request.contract != "pain.optimizer_runner.v1":
+        if request.contract not in ACCEPTED_RUNNER_CONTRACTS:
             return RunnerResponse(
                 metrics={},
                 hashes=dict(request.fingerprints),
@@ -122,20 +148,13 @@ class BacktestEngineRunnerAdapter:
             )
         params = {**self.static_params, **request.params}
         engine = self.engine_factory()
-        # D5-F: support effective_pre_bars via static_params (only if engine supports it)
-        effective_pre_bars = self.static_params.get('_effective_pre_bars')
-        if effective_pre_bars is not None:
-            import inspect
-            try:
-                sig = inspect.signature(engine.run)
-                if 'effective_pre_bars' in sig.parameters:
-                    result = engine.run(self.strategy, bars=self.bars, params=params, effective_pre_bars=effective_pre_bars)
-                else:
-                    result = engine.run(self.strategy, bars=self.bars, params=params)
-            except (ValueError, TypeError):
-                result = engine.run(self.strategy, bars=self.bars, params=params)
-        else:
-            result = engine.run(self.strategy, bars=self.bars, params=params)
+        result = _run_engine(
+            engine,
+            self.strategy,
+            self.bars,
+            params,
+            self.static_params.get("_effective_pre_bars"),
+        )
         hashes = {**request.fingerprints, **_fingerprint_result(result)}
         diagnostics = _diagnostics(result)
         metrics = _metric_dict(result, set(request.required_metrics))

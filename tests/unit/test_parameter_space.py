@@ -3,7 +3,10 @@ from optimizer import Parameter, ParameterSpace
 
 def test_grid_and_constraints_decimal():
     s = ParameterSpace(
-        [Parameter("a", "float", 0.1, 0.1, 0.3, 0.1), Parameter("b", "int", 1, 1, 3, 1)],
+        [
+            Parameter("a", "float", 0.1, 0.1, 0.3, 0.1),
+            Parameter("b", "int", 1, 1, 3, 1),
+        ],
         ["a < 0.31 and b >= 2"],
     )
     grid = list(s.generate_grid())

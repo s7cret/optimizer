@@ -25,7 +25,9 @@ def test_optimize_grid_json(tmp_path):
 
 def test_advanced_runner_request(tmp_path):
     class R:
-        capabilities = RunnerCapabilities(supports_runner_request=True, supports_seed=True)
+        capabilities = RunnerCapabilities(
+            supports_runner_request=True, supports_seed=True
+        )
 
         def __call__(self, req):
             assert req.seed == 42 and "net_profit" in req.required_metrics
@@ -43,7 +45,9 @@ def test_parallel_thread_execution(tmp_path):
     def runner(p):
         return {"net_profit": p["x"], "max_drawdown_percent": 1}
 
-    cfg = OptimizerConfig(output_dir=tmp_path, storage_backend="json", max_parallel=2, max_trials=4)
+    cfg = OptimizerConfig(
+        output_dir=tmp_path, storage_backend="json", max_parallel=2, max_trials=4
+    )
     res = optimize([Parameter("x", "int", 1, 1, 4, 1)], runner, cfg)
     assert res.trials_count_by_status["completed"] == 4
 
@@ -103,7 +107,9 @@ def test_public_optimize_routes_genetic_and_bayesian(tmp_path):
 
 
 def test_public_optimize_walk_forward_requires_explicit_range(tmp_path):
-    cfg = OptimizerConfig(algorithm="walk_forward", output_dir=tmp_path, storage_backend="json")
+    cfg = OptimizerConfig(
+        algorithm="walk_forward", output_dir=tmp_path, storage_backend="json"
+    )
     with pytest.raises(ValueError, match="requires explicit start=.*end="):
         optimize(_params(), _runner, cfg)
 
@@ -166,7 +172,9 @@ def test_public_optimize_walk_forward_requires_range_capable_runner(tmp_path):
 
 def test_public_optimize_walk_forward_without_valid_windows_fails_fast(tmp_path):
     class R:
-        capabilities = RunnerCapabilities(supports_runner_request=True, supports_range=True)
+        capabilities = RunnerCapabilities(
+            supports_runner_request=True, supports_range=True
+        )
 
         def __call__(self, req):
             return {"net_profit": req.params["x"], "max_drawdown_percent": 1}
@@ -184,10 +192,14 @@ def test_public_optimize_walk_forward_without_valid_windows_fails_fast(tmp_path)
 
 # ─── D5-F: Walk-Forward Prehistory ─────────────────────────────────────────────
 
+
 def test_walk_forward_include_prehistory_false_uses_default_behavior(tmp_path):
     """D5-F: Default (include_prehistory=False) does not change walk-forward behavior."""
+
     class R:
-        capabilities = RunnerCapabilities(supports_runner_request=True, supports_range=True)
+        capabilities = RunnerCapabilities(
+            supports_runner_request=True, supports_range=True
+        )
 
         def __call__(self, req):
             bonus = 10 if req.tags.get("walk_forward") == "test" else 0
@@ -207,8 +219,11 @@ def test_walk_forward_include_prehistory_false_uses_default_behavior(tmp_path):
 
 def test_walk_forward_include_prehistory_true_adds_pre_bars_param(tmp_path):
     """D5-F: include_prehistory=True and pre_bars sets _effective_pre_bars in test runner."""
+
     class R:
-        capabilities = RunnerCapabilities(supports_runner_request=True, supports_range=True)
+        capabilities = RunnerCapabilities(
+            supports_runner_request=True, supports_range=True
+        )
         _received_pre_bars = None
         _received_test_range = None
         _received_test_tag = None
@@ -242,7 +257,9 @@ def test_walk_forward_include_prehistory_true_adds_pre_bars_param(tmp_path):
 
 def test_walk_forward_prehistory_requires_range_aware_runner(tmp_path):
     class R:
-        capabilities = RunnerCapabilities(supports_runner_request=False, supports_range=False)
+        capabilities = RunnerCapabilities(
+            supports_runner_request=False, supports_range=False
+        )
 
         def with_range(self, _start, _end):
             return self
@@ -265,8 +282,11 @@ def test_walk_forward_prehistory_requires_range_aware_runner(tmp_path):
 
 def test_walk_forward_pre_bars_zero_means_no_pre_bars(tmp_path):
     """D5-F: pre_bars=0 means no pre-bars (all bars scored)."""
+
     class R:
-        capabilities = RunnerCapabilities(supports_runner_request=True, supports_range=True)
+        capabilities = RunnerCapabilities(
+            supports_runner_request=True, supports_range=True
+        )
         _received_pre_bars = None
 
         def __call__(self, req):
@@ -289,8 +309,11 @@ def test_walk_forward_pre_bars_zero_means_no_pre_bars(tmp_path):
 
 def test_walk_forward_without_pre_bars_option_works_as_before(tmp_path):
     """D5-F: walk_forward without include_prehistory option works exactly as before."""
+
     class R:
-        capabilities = RunnerCapabilities(supports_runner_request=True, supports_range=True)
+        capabilities = RunnerCapabilities(
+            supports_runner_request=True, supports_range=True
+        )
 
         def __call__(self, req):
             bonus = 20 if req.tags.get("walk_forward") == "test" else 0

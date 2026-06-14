@@ -4,7 +4,9 @@ from typing import Any
 from optimizer.analysis.profit_concentration import _profit, _trades_from
 
 
-def analyze_trial(raw: Any, simulations: int = 1000, seed: int = 42) -> dict[str, object]:
+def analyze_trial(
+    raw: Any, simulations: int = 1000, seed: int = 42
+) -> dict[str, object]:
     profits = [_profit(t) for t in _trades_from(raw)]
     if not profits:
         return {
@@ -34,20 +36,26 @@ def analyze_trial(raw: Any, simulations: int = 1000, seed: int = 42) -> dict[str
     }
 
 
-def analyze(trials: list[Any], simulations: int = 1000, seed: int = 42) -> dict[str, object]:
-    per = {t.id: analyze_trial(t.backtest_result, simulations, seed + t.id) for t in trials}
+def analyze(
+    trials: list[Any], simulations: int = 1000, seed: int = 42
+) -> dict[str, object]:
+    per = {
+        t.id: analyze_trial(t.backtest_result, simulations, seed + t.id) for t in trials
+    }
     ok = any(v["status"] == "ok" for v in per.values())
     return {
         "status": "ok" if ok else "insufficient_data",
         "method": "bootstrap_trades",
         "by_trial_id": per,
-        "diagnostics": []
-        if ok
-        else [
-            {
-                "code": "MONTE_CARLO_REQUIRES_TRADES",
-                "severity": "warning",
-                "message": "Expected saved backtest_result trades",
-            }
-        ],
+        "diagnostics": (
+            []
+            if ok
+            else [
+                {
+                    "code": "MONTE_CARLO_REQUIRES_TRADES",
+                    "severity": "warning",
+                    "message": "Expected saved backtest_result trades",
+                }
+            ]
+        ),
     }

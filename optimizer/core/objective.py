@@ -8,7 +8,9 @@ def objective_direction(name, configured="auto"):
     return "minimize" if MetricRegistry().direction(name) == "minimize" else "maximize"
 
 
-def compute_objective(metrics, objective="net_profit", direction="auto", expression=None):
+def compute_objective(
+    metrics, objective="net_profit", direction="auto", expression=None
+):
     if expression:
         return safe_eval_numeric(expression, metrics)
     v = metrics.get(objective)

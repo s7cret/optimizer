@@ -20,7 +20,10 @@ def crossover(
 
 
 def mutate(
-    child: dict[str, object], values: dict[str, list[object]], rng: random.Random, rate: float
+    child: dict[str, object],
+    values: dict[str, list[object]],
+    rng: random.Random,
+    rate: float,
 ) -> dict[str, object]:
     out = dict(child)
     for name, vals in values.items():

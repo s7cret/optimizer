@@ -4,7 +4,9 @@ from typing import Any
 
 def analyze(walk_forward_result: dict[str, Any]) -> dict[str, object]:
     windows = (
-        walk_forward_result.get("windows", []) if isinstance(walk_forward_result, dict) else []
+        walk_forward_result.get("windows", [])
+        if isinstance(walk_forward_result, dict)
+        else []
     )
     rows = []
     test_values = []

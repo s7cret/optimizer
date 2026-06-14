@@ -39,6 +39,7 @@ class Trial:
     finished_at: int | None = None
     params_hash: str | None = None
     raw_objective_value: float | None = None
+    runtime_fingerprint: str | None = None
 
     def to_dict(self):
         d = asdict(self)
