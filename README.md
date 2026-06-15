@@ -2,9 +2,8 @@
 
 > Dependency-light parameter optimizer and runner contract layer for OpenPine strategy backtests.
 
-![Version](https://img.shields.io/badge/version-4.0.0-blue)
-![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+[![Version](https://img.shields.io/badge/version-4.0.0-blue)](https://github.com/s7cret/optimizer) [![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)](https://github.com/s7cret/optimizer) [![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/s7cret/optimizer)
+
 
 **GitHub description:** Optimizer provides parameter-space validation, search algorithms, scoring, ranking, resume metadata, and reports for OpenPine/backtest runners through a clean runner protocol.
 
