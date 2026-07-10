@@ -5,13 +5,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 CACHE_PARTS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
-BUILD_ARTIFACT_PARTS = {".git", "dist", "build", "optimizer_results"}
-EXCLUDED_PARTS = {*CACHE_PARTS, *BUILD_ARTIFACT_PARTS}
+VCS_PARTS = {".git"}
+BUILD_ARTIFACT_PARTS = {"dist", "build", "optimizer_results"}
+EXCLUDED_PARTS = {*CACHE_PARTS, *VCS_PARTS, *BUILD_ARTIFACT_PARTS}
 EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".coverage", ".log"}
 EXCLUDED_NAMES = {".coverage"}
 
@@ -42,10 +44,7 @@ def _has_excluded_part(path: Path) -> bool:
 
 def _is_release_artifact(path: Path) -> bool:
     return (
-        any(
-            part in BUILD_ARTIFACT_PARTS or part.endswith(".egg-info")
-            for part in path.parts
-        )
+        any(part in BUILD_ARTIFACT_PARTS for part in path.parts)
         or path.suffix == ".zip"
     )
 
@@ -59,21 +58,42 @@ def _is_forbidden(path: Path) -> bool:
     )
 
 
-def _include(path: Path) -> bool:
-    return not _is_forbidden(path) and path.is_file()
+def _include(path: Path, *, root: Path | None = None) -> bool:
+    candidate = path if root is None else root / path
+    return (
+        not _is_forbidden(path) and candidate.is_file() and not candidate.is_symlink()
+    )
 
 
 def iter_files(root: str | Path) -> list[Path]:
     root_path = Path(root)
-    return sorted(p for p in root_path.rglob("*") if _include(p.relative_to(root_path)))
+    files: list[Path] = []
+    for directory, dir_names, file_names in os.walk(root_path):
+        dir_names[:] = [
+            name for name in dir_names if not _has_excluded_part(Path(name))
+        ]
+        for name in file_names:
+            path = Path(directory, name)
+            if _include(path.relative_to(root_path), root=root_path):
+                files.append(path)
+    return sorted(files)
 
 
 def _forbidden_entries(root_path: Path) -> list[str]:
-    return sorted(
-        path.relative_to(root_path).as_posix()
-        for path in root_path.rglob("*")
-        if _is_release_artifact(path.relative_to(root_path))
-    )
+    forbidden: list[str] = []
+    for directory, dir_names, file_names in os.walk(root_path):
+        dir_names[:] = [
+            name
+            for name in dir_names
+            if name not in CACHE_PARTS
+            and name not in VCS_PARTS
+            and not name.endswith(".egg-info")
+        ]
+        for name in [*dir_names, *file_names]:
+            path = Path(directory, name).relative_to(root_path)
+            if _is_release_artifact(path):
+                forbidden.append(path.as_posix())
+    return sorted(forbidden)
 
 
 def manifest(root: str | Path) -> DistributionManifest:

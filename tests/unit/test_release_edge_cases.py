@@ -489,13 +489,13 @@ def test_adaptive_grid_empty_refine_and_distribution_guard(
     result = optimize(_space(), _runner, cfg)
     assert result.status == "completed"
 
-    bad = tmp_path / ".git" / "bad.py"
+    bad = tmp_path / "build" / "bad.py"
     bad.parent.mkdir()
     bad.write_text("x = 1")
     monkeypatch.setattr(distribution, "_version", lambda _root: "4.0.0")
     monkeypatch.setattr(
-        distribution, "iter_files", lambda root: [Path(root) / ".git" / "bad.py"]
+        distribution, "iter_files", lambda root: [Path(root) / "build" / "bad.py"]
     )
     report = distribution.manifest(tmp_path)
     assert report.hygiene_ok is False
-    assert report.forbidden_files == [".git", ".git/bad.py"]
+    assert report.forbidden_files == ["build", "build/bad.py"]

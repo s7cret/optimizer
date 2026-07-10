@@ -4,7 +4,8 @@ PYTHON="${PYTHON:-python}"
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 SRC="$TMPDIR/src"
-mkdir -p "$SRC" "$TMPDIR/dist" "$TMPDIR/site"
+SITE_PACKAGES="$TMPDIR/site-packages"
+mkdir -p "$SRC" "$TMPDIR/dist" "$SITE_PACKAGES"
 "$PYTHON" - <<'PY' "$PWD" "$SRC"
 import shutil
 import sys
@@ -30,16 +31,31 @@ def ignore(_directory: str, names: list[str]) -> set[str]:
 
 shutil.copytree(source, dest, dirs_exist_ok=True, ignore=ignore)
 PY
-(cd "$SRC" && "$PYTHON" -m pip wheel --no-index --no-deps --no-build-isolation -w "$TMPDIR/dist" .)
-"$PYTHON" -m pip install --no-index --no-deps --target "$TMPDIR/site" "$TMPDIR"/dist/*.whl
-OPTIMIZER_WHEEL_SMOKE_OUT="$TMPDIR/optimizer_results" PYTHONPATH="$TMPDIR/site" "$PYTHON" - <<'PY'
+"$PYTHON" -m build --wheel --outdir "$TMPDIR/dist" "$SRC"
+"$PYTHON" -m pip install --no-index --no-deps --target "$SITE_PACKAGES" "$TMPDIR"/dist/*.whl
+(
+  cd "$TMPDIR"
+  OPTIMIZER_WHEEL_SMOKE_OUT="$TMPDIR/optimizer_results" \
+    "$PYTHON" -I - "$SITE_PACKAGES" <<'PY'
 import os
+import sys
 from pathlib import Path
+
+site_packages = Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(site_packages))
+
+import optimizer
 from optimizer import OptimizerConfig, Parameter, optimize
+
+optimizer_file = Path(optimizer.__file__).resolve()
+assert optimizer_file.is_relative_to(site_packages), (
+    f"optimizer imported from {optimizer_file}, outside {site_packages}"
+)
 
 
 def runner(params):
     return {"net_profit": 1.0, "max_drawdown": 1.0}
+
 
 result = optimize(
     [Parameter("x", "int", 1, 1, 1, 1)],
@@ -52,5 +68,6 @@ result = optimize(
     ),
 )
 assert result.status == "completed"
-print("optimizer wheel smoke ok")
+print(f"optimizer wheel smoke ok: {optimizer_file}")
 PY
+)

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import builtins
 import json
 import runpy
+import subprocess
 import sys
 import warnings
 from pathlib import Path
@@ -12,8 +14,79 @@ from optimizer.cli import main as cli_main
 from optimizer.cli.main import load_obj, load_params, main
 from optimizer.core.parameter import Parameter
 from optimizer.core.parameter_space import ParameterSpace
-from optimizer.distribution import build_zip, manifest
+from optimizer.distribution import build_zip, iter_files, manifest
 from optimizer.errors import ParameterValidationError
+from optimizer.runners import backtest_engine as backtest_runner
+
+
+def test_stable_hash_falls_back_when_backtest_engine_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_import = builtins.__import__
+
+    def fail_backtest_hash(name, *args, **kwargs):
+        if name == "backtest_engine.core.deterministic_hash":
+            raise ImportError(name)
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fail_backtest_hash)
+
+    assert len(backtest_runner._stable_hash({"seed": 7})) == 64
+
+
+def test_iter_files_selects_files_relative_to_arbitrary_root(tmp_path: Path) -> None:
+    root = tmp_path / "detached-source-tree"
+    root.mkdir()
+    sentinel = root / "phase0-root-relative-only.sentinel"
+    sentinel.write_text("include me\n")
+
+    assert not (Path.cwd() / sentinel.name).exists()
+    assert iter_files(root) == [sentinel]
+
+
+def test_iter_files_rejects_symlinked_files_outside_root(tmp_path: Path) -> None:
+    root = tmp_path / "detached-source-tree"
+    root.mkdir()
+    outside = tmp_path / "secret.txt"
+    outside.write_text("do not archive\n")
+    linked = root / "linked-secret.txt"
+    linked.symlink_to(outside)
+
+    assert linked.is_file()
+    assert iter_files(root) == []
+
+
+def test_wheel_smoke_uses_isolated_pep517_builder() -> None:
+    root = Path(__file__).resolve().parents[2]
+    script = (root / "scripts" / "wheel_smoke.sh").read_text(encoding="utf-8")
+
+    assert '"$PYTHON" -m build --wheel' in script
+    assert "pip wheel" not in script
+    assert "--no-build-isolation" not in script
+    assert "--no-isolation" not in script
+
+
+def test_distribution_manifest_ignores_git_and_egg_info_metadata(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "worktree"
+    (root / "optimizer").mkdir(parents=True)
+    (root / "optimizer" / "version.py").write_text('__version__ = "4.0.0"\n')
+    (root / "optimizer" / "__init__.py").write_text("")
+    clean_report = manifest(root)
+
+    subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "optimizer"], check=True)
+    egg_info = root / "optimizer.egg-info"
+    egg_info.mkdir()
+    (egg_info / "PKG-INFO").write_text("generated metadata\n")
+
+    worktree_report = manifest(root)
+
+    assert worktree_report.hygiene_ok is True
+    assert worktree_report.forbidden_files == []
+    assert worktree_report.file_count == clean_report.file_count
+    assert worktree_report.sha256 == clean_report.sha256
 
 
 def test_distribution_manifest_reports_excluded_artifacts(tmp_path: Path) -> None:
