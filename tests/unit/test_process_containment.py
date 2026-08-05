@@ -154,6 +154,42 @@ def test_cgroup_creation_io_and_cleanup_branches(
     assert persistent.exists()
 
 
+def test_procfs_descendant_snapshot_and_signaling(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    proc_root = tmp_path / "proc"
+    monkeypatch.setattr(containment, "PROC_ROOT", proc_root)
+
+    def children(pid: int, value: str) -> None:
+        path = proc_root / str(pid) / "task" / str(pid)
+        path.mkdir(parents=True)
+        (path / "children").write_text(value)
+
+    children(10, "11 12")
+    children(11, "13")
+    children(12, "10")
+    children(13, "")
+    children(20, "not-a-pid")
+
+    assert containment.descendant_processes(10) == [11, 12, 13]
+    assert containment.descendant_processes(20) == []
+    assert containment.descendant_processes(99) == []
+
+    attempts: list[tuple[int, int]] = []
+
+    def signal(pid: int, sig: int) -> None:
+        attempts.append((pid, sig))
+        if pid == 12:
+            raise ProcessLookupError
+
+    monkeypatch.setattr(containment.os, "kill", signal)
+    containment.signal_processes([11, 12], containment.signal.SIGTERM)
+    assert attempts == [
+        (12, containment.signal.SIGTERM),
+        (11, containment.signal.SIGTERM),
+    ]
+
+
 def test_terminate_runner_process_cgroup_and_direct_error_branches(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

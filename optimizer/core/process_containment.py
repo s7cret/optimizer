@@ -11,6 +11,7 @@ from typing import Any
 
 CGROUP_ROOT = Path("/sys/fs/cgroup")
 PROC_SELF_CGROUP = Path("/proc/self/cgroup")
+PROC_ROOT = Path("/proc")
 
 
 def isolated_process_group(proc: Any) -> int | None:
@@ -83,6 +84,38 @@ def remove_trial_cgroup(path: Path) -> None:
             time.sleep(0.01)
 
 
+def descendant_processes(root_pid: int) -> list[int]:
+    """Snapshot descendants through procfs, including detached sessions."""
+
+    pending = [root_pid]
+    seen = {root_pid}
+    descendants: list[int] = []
+    while pending:
+        parent = pending.pop()
+        children_path = PROC_ROOT / str(parent) / "task" / str(parent) / "children"
+        try:
+            children = [int(value) for value in children_path.read_text().split()]
+        except (OSError, ValueError):
+            continue
+        for child in children:
+            if child in seen:
+                continue
+            seen.add(child)
+            descendants.append(child)
+            pending.append(child)
+    return descendants
+
+
+def signal_processes(processes: list[int], sig: int) -> None:
+    """Signal a descendant snapshot deepest-first, ignoring exited processes."""
+
+    for pid in reversed(processes):
+        try:
+            os.kill(pid, sig)
+        except OSError:
+            pass
+
+
 def terminate_runner_process(proc: Any, cgroup: Path | None = None) -> None:
     if cgroup is not None:
         kill_trial_cgroup(cgroup)
@@ -96,6 +129,9 @@ def terminate_runner_process(proc: Any, cgroup: Path | None = None) -> None:
         remove_trial_cgroup(cgroup)
         return
     group = isolated_process_group(proc)
+    pid = getattr(proc, "pid", None)
+    descendants = descendant_processes(pid) if isinstance(pid, int) else []
+    signal_processes(descendants, signal.SIGTERM)
     if group is None:
         try:
             proc.terminate()
@@ -109,6 +145,7 @@ def terminate_runner_process(proc: Any, cgroup: Path | None = None) -> None:
         # Do not join/reap the leader before the final group signal: keeping its
         # PID allocated closes the PGID reuse race against unrelated processes.
         time.sleep(0.05)
+        signal_processes(descendants, signal.SIGKILL)
         try:
             os.killpg(group, signal.SIGKILL)
         except ProcessLookupError:

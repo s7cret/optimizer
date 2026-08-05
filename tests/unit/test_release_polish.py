@@ -93,7 +93,10 @@ def test_process_timeout_kills_runner_descendants(tmp_path: Path) -> None:
     assert not marker.exists()
 
 
-def test_process_timeout_kills_detached_runner_descendants(tmp_path: Path) -> None:
+def test_process_timeout_kills_detached_runner_descendants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(trial_runner, "_create_trial_cgroup", lambda: None)
     marker = tmp_path / "detached-descendant-survived"
 
     def runner(_payload):
