@@ -46,7 +46,11 @@ def test_parallel_thread_execution(tmp_path):
         return {"net_profit": p["x"], "max_drawdown_percent": 1}
 
     cfg = OptimizerConfig(
-        output_dir=tmp_path, storage_backend="json", max_parallel=2, max_trials=4
+        output_dir=tmp_path,
+        storage_backend="json",
+        max_parallel=2,
+        max_trials=4,
+        timeout_per_trial_sec=0,
     )
     res = optimize([Parameter("x", "int", 1, 1, 4, 1)], runner, cfg)
     assert res.trials_count_by_status["completed"] == 4
@@ -148,6 +152,7 @@ def test_public_optimize_routes_walk_forward_with_range_runner(tmp_path):
         walk_forward_windows=2,
         report_profiles=False,
         use_profile_auto_constraints=False,
+        timeout_per_trial_sec=0,
     )
     wf = optimize([Parameter("x", "int", 1, 1, 2, 1)], runner, cfg, start=0, end=100)
     assert wf["status"] == "ok"
@@ -244,6 +249,7 @@ def test_walk_forward_include_prehistory_true_adds_pre_bars_param(tmp_path):
         walk_forward_windows=2,
         walk_forward_include_prehistory=True,
         walk_forward_pre_bars=50,
+        timeout_per_trial_sec=0,
     )
     wf = optimize([Parameter("x", "int", 1, 1, 2, 1)], R(), cfg, start=0, end=100)
     assert wf["status"] == "ok"

@@ -1,8 +1,8 @@
-# Optimizer 4.0.0
+# Optimizer 4.0.1
 
 > Dependency-light parameter optimizer and runner contract layer for OpenPine strategy backtests.
 
-[![Version](https://img.shields.io/badge/version-4.0.0-blue)](https://github.com/s7cret/optimizer) [![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)](https://github.com/s7cret/optimizer) [![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/s7cret/optimizer)
+[![Version](https://img.shields.io/badge/version-4.0.1-blue)](https://github.com/s7cret/optimizer) [![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)](https://github.com/s7cret/optimizer) [![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/s7cret/optimizer)
 
 
 **GitHub description:** Optimizer provides parameter-space validation, search algorithms, scoring, ranking, resume metadata, and reports for OpenPine/backtest runners through a clean runner protocol.
@@ -35,6 +35,8 @@ The optimizer core is deliberately separated from market data, Pine runtime, bro
 
 Optimizer does not fetch candles, parse Pine, lower AST, execute generated code, emulate fills, or place trades. It only coordinates parameter candidates and runner calls. The quality of optimizer output depends on the supplied runner, market data, scoring objective, constraints, and validation windows.
 
+Process timeouts are lifecycle containment for trusted runner integrations, not a security sandbox. On delegated Linux cgroup v2 installations, Optimizer kills the complete per-trial cgroup, including descendants that create a new session; other platforms fall back to process-group/direct-process termination. Run untrusted runner code under a separate operating-system identity or external sandbox.
+
 ## Runner contract
 
 Preferred contract id:
@@ -59,7 +61,7 @@ python -m pip install -e '.[dev]'
 Install from GitHub tag:
 
 ```bash
-python -m pip install 'git+https://github.com/s7cret/optimizer.git@v4.0.0'
+python -m pip install 'git+https://github.com/s7cret/optimizer.git@v4.0.1'
 ```
 
 ## Python quick start

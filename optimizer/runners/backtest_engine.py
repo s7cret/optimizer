@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, is_dataclass
+import inspect
 import math
 from typing import Any, cast
 
@@ -35,6 +36,45 @@ def _stable_hash(value: Any) -> str:
 
         return stable_hash(value)
     return sha256_obj(value)
+
+
+def _identity_value(value: Any) -> Any:
+    if is_dataclass(value) and not inspect.isclass(value):
+        return asdict(cast(Any, value))
+    if isinstance(value, dict):
+        return {str(key): _identity_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_identity_value(item) for item in value]
+    if isinstance(value, (str, int, float, bool, type(None))):
+        return value
+    if inspect.isclass(value):
+        return {
+            "module": value.__module__,
+            "qualname": value.__qualname__,
+            "source": _source_or_none(value),
+        }
+    return {"type": f"{type(value).__module__}.{type(value).__qualname__}"}
+
+
+def _source_or_none(value: Any) -> str | None:
+    try:
+        return inspect.getsource(value)
+    except (OSError, TypeError):
+        return None
+
+
+def _callable_identity(value: Any) -> dict[str, Any]:
+    code = getattr(value, "__code__", None)
+    closure = getattr(value, "__closure__", None) or ()
+    return {
+        "module": getattr(value, "__module__", type(value).__module__),
+        "qualname": getattr(value, "__qualname__", type(value).__qualname__),
+        "source": _source_or_none(value),
+        "bytecode": None if code is None else code.co_code.hex(),
+        "constants": None if code is None else repr(code.co_consts),
+        "defaults": _identity_value(getattr(value, "__defaults__", None)),
+        "closure": [_identity_value(cell.cell_contents) for cell in closure],
+    }
 
 
 def _fingerprint_result(result: Any) -> dict[str, str]:
@@ -127,11 +167,29 @@ class BacktestEngineRunnerAdapter:
         strategy: Any,
         bars: Sequence[Any],
         static_params: dict[str, Any] | None = None,
+        runner_fingerprint: str | None = None,
+        data_fingerprint: str | None = None,
+        engine_config_hash: str | None = None,
     ) -> None:
         self.engine_factory = engine_factory
         self.strategy = strategy
         self.bars = list(bars)
         self.static_params = dict(static_params or {})
+        factory_identity = _callable_identity(engine_factory)
+        self.data_fingerprint = data_fingerprint or _stable_hash(self.bars)
+        self.engine_config_hash = engine_config_hash or _stable_hash(
+            {"engine_factory": factory_identity, "static_params": self.static_params}
+        )
+        self.runner_fingerprint = runner_fingerprint or _stable_hash(
+            {
+                "adapter": f"{type(self).__module__}.{type(self).__qualname__}",
+                "engine_factory": factory_identity,
+                "strategy": _identity_value(strategy),
+            }
+        )
+
+    def fingerprint(self) -> str:
+        return self.runner_fingerprint
 
     def __call__(self, request: RunnerRequest) -> RunnerResponse:
         if request.contract not in ACCEPTED_RUNNER_CONTRACTS:

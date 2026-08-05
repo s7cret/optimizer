@@ -7,7 +7,11 @@ from optimizer import OptimizerConfig, Parameter, dry_run_validate, optimize
 from optimizer.core.diagnostic import Diagnostic
 from optimizer.core.expression import safe_eval_numeric
 from optimizer.core.metric_registry import MetricRegistry
-from optimizer.errors import ParameterValidationError, StorageError
+from optimizer.errors import (
+    FingerprintMismatchError,
+    ParameterValidationError,
+    StorageError,
+)
 
 
 def process_timeout_slow_runner(_params):
@@ -101,6 +105,10 @@ def test_resume_uses_params_hash_and_loads_prior_trials(tmp_path):
         storage_backend="json",
         max_trials=2,
         use_profile_auto_constraints=False,
+        runner_fingerprint="runner-v1",
+        data_fingerprint="data-v1",
+        engine_config_hash="engine-v1",
+        timeout_per_trial_sec=0,
     )
     optimize(params, runner, cfg)
     second = optimize(params, runner, cfg)
@@ -125,6 +133,10 @@ def test_resume_with_metadata_but_missing_trials_fails_closed(tmp_path):
         storage_backend="json",
         max_trials=1,
         use_profile_auto_constraints=False,
+        runner_fingerprint="runner-v1",
+        data_fingerprint="data-v1",
+        engine_config_hash="engine-v1",
+        timeout_per_trial_sec=0,
     )
     optimize(params, runner, cfg)
     (tmp_path / "trials.jsonl").unlink()
@@ -195,8 +207,11 @@ def test_safe_numeric_expression_rejects_bad_math():
 
 
 def test_timeout_returns_failed_status_without_waiting_for_runner_completion(tmp_path):
+    late_marker = tmp_path / "late-completion"
+
     def slow(_p):
         time.sleep(0.3)
+        late_marker.write_text("runner survived timeout")
         return {"net_profit": 1}
 
     t0 = time.perf_counter()
@@ -213,6 +228,33 @@ def test_timeout_returns_failed_status_without_waiting_for_runner_completion(tmp
     assert time.perf_counter() - t0 < 0.25
     assert res.trials_count_by_status["failed"] == 1
     assert any(d.code == "TRIAL_TIMEOUT" for t in res.all_trials for d in t.diagnostics)
+    time.sleep(0.35)
+    assert not late_marker.exists()
+
+
+def test_resume_without_complete_identity_fails_closed_before_runner_reuse(tmp_path):
+    calls = {"a": 0, "b": 0}
+
+    def runner_a(params):
+        calls["a"] += 1
+        return {"net_profit": params["x"]}
+
+    def runner_b(params):
+        calls["b"] += 1
+        return {"net_profit": params["x"] + 100}
+
+    params = [Parameter("x", "int", 1, 1, 1, 1)]
+    cfg = OptimizerConfig(
+        output_dir=tmp_path,
+        storage_backend="json",
+        max_trials=1,
+        use_profile_auto_constraints=False,
+        timeout_per_trial_sec=0,
+    )
+    optimize(params, runner_a, cfg)
+    with pytest.raises(FingerprintMismatchError, match="complete resume identity"):
+        optimize(params, runner_b, cfg)
+    assert calls == {"a": 1, "b": 0}
 
 
 def test_process_timeout_backend_terminates_picklable_runner(tmp_path):
@@ -233,7 +275,35 @@ def test_process_timeout_backend_terminates_picklable_runner(tmp_path):
     assert any(d.code == "TRIAL_TIMEOUT" for t in res.all_trials for d in t.diagnostics)
 
 
-def test_auto_timeout_backend_falls_back_for_local_runner(tmp_path):
+def test_explicit_thread_timeout_reports_uncontained_late_completion(tmp_path):
+    late_marker = tmp_path / "thread-late-completion"
+
+    def slow(_params):
+        time.sleep(0.15)
+        late_marker.write_text("completed")
+        return {"net_profit": 999}
+
+    res = optimize(
+        [Parameter("x", "int", 1, 1, 1, 1)],
+        slow,
+        OptimizerConfig(
+            output_dir=tmp_path,
+            storage_backend="json",
+            timeout_per_trial_sec=0.01,
+            timeout_backend="thread",
+            use_profile_auto_constraints=False,
+        ),
+    )
+    before = (tmp_path / "trials.jsonl").read_text()
+    codes = {d.code for d in res.all_trials[0].diagnostics}
+    assert {"TRIAL_TIMEOUT", "TRIAL_TIMEOUT_NOT_CANCELLED"} <= codes
+    time.sleep(0.2)
+    assert late_marker.read_text() == "completed"
+    assert (tmp_path / "trials.jsonl").read_text() == before
+    assert json.loads(before)["status"] == "failed"
+
+
+def test_auto_timeout_backend_isolates_local_runner(tmp_path):
     def local_runner(params):
         return {"net_profit": params["x"], "max_drawdown_percent": 1}
 
@@ -249,8 +319,8 @@ def test_auto_timeout_backend_falls_back_for_local_runner(tmp_path):
         ),
     )
     assert res.trials_count_by_status["completed"] == 1
-    assert any(
-        d.code == "RUNNER_TIMEOUT_THREAD_FALLBACK"
+    assert all(
+        d.code != "RUNNER_TIMEOUT_THREAD_FALLBACK"
         for trial in res.all_trials
         for d in trial.diagnostics
     )

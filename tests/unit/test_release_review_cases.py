@@ -83,6 +83,7 @@ def test_adaptive_grid_refinement_uses_minimize_direction(tmp_path):
         adaptive_grid_top_n=1,
         adaptive_grid_refinement_factor=0.5,
         use_profile_auto_constraints=False,
+        timeout_per_trial_sec=0,
     )
     optimize([Parameter("x", "int", 1, 1, 3, 1)], runner, cfg)
 
@@ -300,6 +301,7 @@ def test_parallel_fail_fast_does_not_submit_all_jobs(tmp_path):
             fail_fast=True,
             use_profile_auto_constraints=False,
             report_profiles=False,
+            timeout_per_trial_sec=0,
         ),
     )
 

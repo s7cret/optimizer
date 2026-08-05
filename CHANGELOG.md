@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.0.1
+
+- Published the hardened OpenPine 4.0.1 stack with unchanged optimizer runner contracts.
+- Aligned package, documentation, and immutable consumer metadata.
+- Made process timeouts contain detached descendants with delegated cgroup v2, retained a portable process-group fallback, and documented that runner lifecycle containment is not a security sandbox.
+
 ## 4.0.0
 
 - Promoted Optimizer to the OpenPine 4.0 runner-contract line.

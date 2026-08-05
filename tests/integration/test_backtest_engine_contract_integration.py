@@ -62,6 +62,7 @@ def test_backtest_engine_runner_optimizer_selected_trial_hash_lineage(
             objective="net_profit",
             report_profiles=False,
             use_profile_auto_constraints=False,
+            timeout_per_trial_sec=0,
         ),
     )
 

@@ -1,7 +1,9 @@
 import concurrent.futures
 import multiprocessing as mp
+import os
 import pickle
 import queue
+import threading
 import time
 import traceback
 import warnings
@@ -13,6 +15,14 @@ from optimizer.core.metric_registry import MetricRegistry
 from optimizer.core.constraints import evaluate_constraints, merge_constraints
 from optimizer.core.objective import compute_objective, objective_direction
 from optimizer.core.normalization import balanced_score
+from optimizer.core.process_containment import (
+    attach_trial_cgroup as _attach_trial_cgroup,
+    create_trial_cgroup as _create_trial_cgroup,
+    kill_trial_cgroup as _kill_trial_cgroup,
+    remove_trial_cgroup as _remove_trial_cgroup,
+    signal as signal,
+    terminate_runner_process as _terminate_runner_process,
+)
 from optimizer.core.expression import stable_hash
 from optimizer.results.trial import Trial
 from optimizer.core.diagnostic import Diagnostic
@@ -49,7 +59,13 @@ def _invoke_runner(runner, payload):
     return runner(payload)
 
 
-def _runner_process_entry(out, runner, payload):
+def _runner_process_entry(
+    out, runner, payload, isolate_process_group=False, start_gate=None
+):
+    if start_gate is not None:
+        start_gate.wait()
+    if isolate_process_group and hasattr(os, "setsid"):
+        os.setsid()
     try:
         out.put(("ok", _invoke_runner(runner, payload)))
     except BaseException as exc:
@@ -67,35 +83,81 @@ def _is_picklable(value):
 def _call_runner_in_process(runner, payload, timeout):
     if timeout is None or timeout <= 0:
         return _invoke_runner(runner, payload)
-    ctx = (
-        mp.get_context("fork")
-        if "fork" in mp.get_all_start_methods()
-        else mp.get_context("spawn")
+    use_fork = (
+        "fork" in mp.get_all_start_methods()
+        and threading.current_thread() is threading.main_thread()
+        and threading.active_count() == 1
     )
+    ctx = mp.get_context("fork" if use_fork else "spawn")
     out = ctx.Queue(maxsize=1)
-    proc = ctx.Process(target=_runner_process_entry, args=(out, runner, payload))
+    event_factory = getattr(ctx, "Event", None)
+    start_gate: Any = event_factory() if callable(event_factory) else None
+    cgroup = _create_trial_cgroup()
+    proc = ctx.Process(
+        target=_runner_process_entry,
+        args=(out, runner, payload, True, start_gate),
+    )
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning)
-        proc.start()
-    proc.join(timeout)
-    if proc.is_alive():
-        proc.terminate()
-        proc.join(2)
-        if proc.is_alive():
-            proc.kill()
-            proc.join()
-        out.close()
-        out.cancel_join_thread()
-        raise concurrent.futures.TimeoutError("trial timeout")
+        try:
+            proc.start()
+        except BaseException:
+            if cgroup is not None:
+                _remove_trial_cgroup(cgroup)
+            raise
+    if cgroup is not None and not _attach_trial_cgroup(cgroup, proc):
+        _remove_trial_cgroup(cgroup)
+        cgroup = None
+    if start_gate is not None:
+        start_gate.set()
+    record: Any = None
     try:
-        status, *parts = out.get_nowait()
-    except queue.Empty as exc:
-        if proc.exitcode == 0:
-            raise RuntimeError("runner process exited without a result") from exc
-        raise RuntimeError(f"runner process exited with code {proc.exitcode}") from exc
+        blocking_get = getattr(out, "get", None)
+        if callable(blocking_get):
+            try:
+                record = blocking_get(timeout=timeout)
+            except queue.Empty as exc:
+                proc.join(0)
+                if proc.is_alive():
+                    _terminate_runner_process(proc, cgroup)
+                    cgroup = None
+                    raise concurrent.futures.TimeoutError("trial timeout") from exc
+                if proc.exitcode == 0:
+                    raise RuntimeError(
+                        "runner process exited without a result"
+                    ) from exc
+                raise RuntimeError(
+                    f"runner process exited with code {proc.exitcode}"
+                ) from exc
+            proc.join(2)
+            if proc.is_alive():
+                _terminate_runner_process(proc, cgroup)
+                cgroup = None
+        else:
+            proc.join(timeout)
+            if proc.is_alive():
+                _terminate_runner_process(proc, cgroup)
+                cgroup = None
+                raise concurrent.futures.TimeoutError("trial timeout")
+            try:
+                record = out.get_nowait()
+            except queue.Empty as exc:
+                if proc.exitcode == 0:
+                    raise RuntimeError(
+                        "runner process exited without a result"
+                    ) from exc
+                raise RuntimeError(
+                    f"runner process exited with code {proc.exitcode}"
+                ) from exc
     finally:
         out.close()
         out.cancel_join_thread()
+        if cgroup is not None:
+            _kill_trial_cgroup(cgroup)
+            _remove_trial_cgroup(cgroup)
+    if record is None:
+        raise RuntimeError("runner process completed without a result record")
+    status, *parts = record
     if status == "ok":
         return parts[0]
     exc_name, message, tb = parts
@@ -105,26 +167,32 @@ def _call_runner_in_process(runner, payload, timeout):
 def _select_timeout_backend(
     config, runner, payload, diagnostics, trial_id, params_hash
 ):
-    backend = getattr(config, "timeout_backend", "thread")
+    backend = getattr(config, "timeout_backend", "process")
     timeout = getattr(config, "timeout_per_trial_sec", None)
-    if backend == "thread" or timeout is None or timeout <= 0:
+    if timeout is None or timeout <= 0:
         return "thread"
-    if _is_picklable((runner, payload)):
-        return "process"
-    if backend == "process":
-        raise ValueError(
-            "process timeout backend requires a picklable runner and request"
+    if backend == "thread":
+        diagnostics.append(
+            Diagnostic(
+                "RUNNER_TIMEOUT_THREAD_BACKEND_UNCONTAINED",
+                "thread timeout is a deadline only; timed-out user code is not cancelled",
+                "warning",
+                trial_id,
+                params_hash,
+            )
         )
-    diagnostics.append(
-        Diagnostic(
-            "RUNNER_TIMEOUT_THREAD_FALLBACK",
-            "runner/request is not picklable; thread timeout fallback may leave user code running",
-            "warning",
-            trial_id,
-            params_hash,
-        )
+        return "thread"
+    safe_fork = (
+        "fork" in mp.get_all_start_methods()
+        and threading.current_thread() is threading.main_thread()
+        and threading.active_count() == 1
     )
-    return "thread"
+    if safe_fork or _is_picklable((runner, payload)):
+        return "process"
+    raise ValueError(
+        f"{backend} timeout backend requires a picklable runner and request "
+        "when the platform has no fork start method"
+    )
 
 
 def _call_with_timeout(fn, timeout):
@@ -286,6 +354,7 @@ def run_one(
     diags = []
     metrics = {}
     raw = None
+    timeout_backend = None
     params_hash = stable_hash(params)
     direction = (
         config.objective_direction
@@ -565,6 +634,16 @@ def run_one(
         err = "trial timeout"
         tr = traceback.format_exc()
         diags.append(Diagnostic("TRIAL_TIMEOUT", err, "error", trial_id, params_hash))
+        if timeout_backend == "thread":
+            diags.append(
+                Diagnostic(
+                    "TRIAL_TIMEOUT_NOT_CANCELLED",
+                    "thread-backed runner exceeded its deadline and may still be executing",
+                    "warning",
+                    trial_id,
+                    params_hash,
+                )
+            )
     except Exception as e:
         status = "failed"
         err = str(e)

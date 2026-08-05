@@ -42,7 +42,10 @@ class FakeStrategy:
 
 def cfg(tmp_path):
     return OptimizerConfig(
-        output_dir=tmp_path, storage_backend="json", use_profile_auto_constraints=False
+        output_dir=tmp_path,
+        storage_backend="json",
+        use_profile_auto_constraints=False,
+        timeout_per_trial_sec=0,
     )
 
 

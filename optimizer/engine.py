@@ -31,6 +31,7 @@ from optimizer.algorithms import (
 )
 from optimizer.core.diagnostic import Diagnostic
 from optimizer.errors import UnsupportedFeatureError
+from optimizer.version import __version__
 from optimizer.results.trial import Trial
 from optimizer.requests import OptimizerRunRequest
 from optimizer.core.data_query import _failed_request_result, _validate_data_query
@@ -57,11 +58,20 @@ def _key(params):
     return json.dumps(params, sort_keys=True, default=str)
 
 
-def _runner_fingerprint(runner):
+def _runner_fingerprint(runner, explicit=None):
+    if explicit:
+        return explicit
     fp = getattr(runner, "fingerprint", None)
     if callable(fp):
         return fp()
     return fp
+
+
+def _runner_identity_value(runner, name, explicit=None):
+    if explicit:
+        return explicit
+    value = getattr(runner, name, None)
+    return value() if callable(value) else value
 
 
 def _params_for(space, config):
@@ -389,13 +399,30 @@ def optimize(
     fingerprints = {
         "parameter_space_hash": space_hash,
         "optimizer_config_hash": config_hash,
-        "data_fingerprint": None,
-        "runner_fingerprint": _runner_fingerprint(runner),
-        "engine_config_hash": None,
+        "data_fingerprint": _runner_identity_value(
+            runner, "data_fingerprint", config.data_fingerprint
+        ),
+        "runner_fingerprint": _runner_fingerprint(runner, config.runner_fingerprint),
+        "engine_config_hash": _runner_identity_value(
+            runner, "engine_config_hash", config.engine_config_hash
+        ),
+        "optimizer_version": __version__,
     }
     store = _storage(config)
     previous_run_metadata = check_resume(
-        store, fingerprints, config.force_resume_on_fingerprint_mismatch
+        store,
+        fingerprints,
+        config.force_resume_on_fingerprint_mismatch,
+        required_non_null=(
+            (
+                "runner_fingerprint",
+                "data_fingerprint",
+                "engine_config_hash",
+                "optimizer_version",
+            )
+            if config.resume
+            else ()
+        ),
     )
     diagnostics: list[Diagnostic] = []
     _check_parallel_policy(config, diagnostics)

@@ -37,6 +37,7 @@ def cfg(tmp_path, **kw):
         objective="net_profit",
         report_profiles=False,
         use_profile_auto_constraints=False,
+        timeout_per_trial_sec=0,
     )
     d.update(kw)
     return OptimizerConfig(**d)

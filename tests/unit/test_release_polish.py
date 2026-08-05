@@ -5,18 +5,27 @@ import json
 import runpy
 import subprocess
 import sys
+import time
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
 from optimizer.cli import main as cli_main
 from optimizer.cli.main import load_obj, load_params, main
+from optimizer.core import process_containment
+from optimizer.core import trial_runner
 from optimizer.core.parameter import Parameter
 from optimizer.core.parameter_space import ParameterSpace
 from optimizer.distribution import build_zip, iter_files, manifest
 from optimizer.errors import ParameterValidationError
 from optimizer.runners import backtest_engine as backtest_runner
+from optimizer.version import __version__
+
+
+def test_release_version_is_4_0_1() -> None:
+    assert __version__ == "4.0.1"
 
 
 def test_stable_hash_falls_back_when_backtest_engine_is_unavailable(
@@ -32,6 +41,156 @@ def test_stable_hash_falls_back_when_backtest_engine_is_unavailable(
     monkeypatch.setattr(builtins, "__import__", fail_backtest_hash)
 
     assert len(backtest_runner._stable_hash({"seed": 7})) == 64
+
+
+def test_backtest_identity_normalizes_dataclasses_mappings_and_sequences() -> None:
+    @dataclass
+    class Payload:
+        value: int
+
+    assert backtest_runner._identity_value(
+        {"payload": Payload(7), "sequence": (1, 2)}
+    ) == {"payload": {"value": 7}, "sequence": [1, 2]}
+
+
+def test_process_timeout_rejects_unpicklable_request_without_fork(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Config:
+        timeout_backend = "process"
+        timeout_per_trial_sec = 1
+
+    assert trial_runner._is_picklable({"value": 1}) is True
+    assert trial_runner._is_picklable(lambda: None) is False
+    monkeypatch.setattr(trial_runner.mp, "get_all_start_methods", lambda: ["spawn"])
+
+    with pytest.raises(ValueError, match="picklable runner and request"):
+        trial_runner._select_timeout_backend(
+            Config(), lambda value: value, {"value": 1}, [], 1, "params"
+        )
+
+
+def test_process_timeout_kills_runner_descendants(tmp_path: Path) -> None:
+    marker = tmp_path / "descendant-survived"
+
+    def runner(_payload):
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import pathlib,time; time.sleep(0.5); "
+                    f"pathlib.Path({str(marker)!r}).write_text('survived')"
+                ),
+            ]
+        )
+        time.sleep(5)
+
+    with pytest.raises(__import__("concurrent.futures").futures.TimeoutError):
+        trial_runner._call_runner_in_process(runner, {}, 0.2)
+    time.sleep(0.7)
+
+    assert not marker.exists()
+
+
+def test_process_timeout_kills_detached_runner_descendants(tmp_path: Path) -> None:
+    marker = tmp_path / "detached-descendant-survived"
+
+    def runner(_payload):
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import pathlib,time; time.sleep(0.6); "
+                    f"pathlib.Path({str(marker)!r}).write_text('escaped')"
+                ),
+            ],
+            start_new_session=True,
+        )
+        time.sleep(5)
+
+    with pytest.raises(__import__("concurrent.futures").futures.TimeoutError):
+        trial_runner._call_runner_in_process(runner, {}, 0.2)
+    time.sleep(0.8)
+
+    assert not marker.exists()
+
+
+def test_process_timeout_backend_drains_large_success_before_join() -> None:
+    payload = trial_runner._call_runner_in_process(
+        lambda _payload: b"x" * (8 * 1024 * 1024),
+        {},
+        2,
+    )
+    assert len(payload) == 8 * 1024 * 1024
+
+
+def test_process_group_helpers_contain_startup_and_reap_races(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session_calls: list[bool] = []
+    monkeypatch.setattr(trial_runner.os, "setsid", lambda: session_calls.append(True))
+    output = __import__("queue").Queue()
+    trial_runner._runner_process_entry(
+        output, lambda payload: payload, {"ok": True}, True
+    )
+    assert session_calls == [True]
+    assert output.get_nowait() == ("ok", {"ok": True})
+
+    class Process:
+        pid = 123
+
+        def __init__(self) -> None:
+            self.joins: list[object] = []
+
+        def join(self, timeout=None) -> None:
+            self.joins.append(timeout)
+
+        def is_alive(self) -> bool:
+            return False
+
+    process = Process()
+    monkeypatch.setattr(
+        trial_runner.os,
+        "getpgid",
+        lambda _pid: (_ for _ in ()).throw(OSError("already gone")),
+    )
+    assert process_containment.isolated_process_group(process) is None
+
+    monkeypatch.setattr(trial_runner.os, "getpgid", lambda pid: pid)
+    signals: list[int] = []
+
+    def missing_group(_pid: int, sig: int) -> None:
+        signals.append(sig)
+        raise ProcessLookupError
+
+    monkeypatch.setattr(trial_runner.os, "killpg", missing_group)
+    trial_runner._terminate_runner_process(process)
+
+    assert signals == [trial_runner.signal.SIGTERM, trial_runner.signal.SIGKILL]
+    assert process.joins == [2, None]
+
+
+def test_process_group_fallback_tolerates_already_reaped_process() -> None:
+    class GoneProcess:
+        pid = None
+
+        def __init__(self) -> None:
+            self.joins: list[object] = []
+
+        def terminate(self) -> None:
+            raise ProcessLookupError("already gone")
+
+        def join(self, timeout=None) -> None:
+            self.joins.append(timeout)
+
+        def is_alive(self) -> bool:
+            return False
+
+    process = GoneProcess()
+    trial_runner._terminate_runner_process(process)
+    assert process.joins == [2, None]
 
 
 def test_iter_files_selects_files_relative_to_arbitrary_root(tmp_path: Path) -> None:
@@ -64,6 +223,14 @@ def test_wheel_smoke_uses_isolated_pep517_builder() -> None:
     assert "pip wheel" not in script
     assert "--no-build-isolation" not in script
     assert "--no-isolation" not in script
+
+
+def test_smoke_import_parse_does_not_write_default_results_directory() -> None:
+    root = Path(__file__).resolve().parents[2]
+    script = (root / "scripts" / "smoke_import_parse.sh").read_text(encoding="utf-8")
+
+    assert "TemporaryDirectory" in script
+    assert "output_dir=" in script
 
 
 def test_distribution_manifest_ignores_git_and_egg_info_metadata(

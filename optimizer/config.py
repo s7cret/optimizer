@@ -88,7 +88,7 @@ class OptimizerConfig:
     robustness_min_neighbors: int = 8
     max_parallel: int = 1
     parallel_backend: Literal["process", "thread"] = "thread"
-    timeout_backend: Literal["thread", "process", "auto"] = "thread"
+    timeout_backend: Literal["thread", "process", "auto"] = "process"
     max_parallel_over_cpu_policy: Literal["warn", "error", "allow"] = "warn"
     ordered_results: bool = False
     save_all_trials: bool = True
@@ -96,6 +96,9 @@ class OptimizerConfig:
     checkpoint_every: int = 50
     resume: bool = True
     force_resume_on_fingerprint_mismatch: bool = False
+    runner_fingerprint: str | None = None
+    data_fingerprint: str | None = None
+    engine_config_hash: str | None = None
     run_id: str | None = None
     output_dir: Path = Path("./optimizer_results")
     storage_backend: Literal["sqlite", "json"] = "sqlite"

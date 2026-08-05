@@ -407,7 +407,7 @@ def test_distribution_quality_release_and_module_entrypoints(
     json_path = tmp_path / "release.json"
     assert release_main(["--root", str(root), "--json", str(json_path)]) == 1
     assert (
-        json.loads(json_path.read_text(encoding="utf-8"))["package_version"] == "4.0.0"
+        json.loads(json_path.read_text(encoding="utf-8"))["package_version"] == "4.0.1"
     )
 
     with pytest.raises(SystemExit) as exc, warnings.catch_warnings():
@@ -633,17 +633,19 @@ def test_trial_runner_contract_errors_and_timeout(tmp_path: Path) -> None:
     bad_cfg = _cfg(
         tmp_path / "process", timeout_backend="process", timeout_per_trial_sec=1
     )
-    with pytest.raises(ValueError):
+    assert (
         _select_timeout_backend(bad_cfg, lambda x: x, {"x": object()}, [], 1, "h")
+        == "process"
+    )
     auto_cfg = _cfg(tmp_path / "auto", timeout_backend="auto", timeout_per_trial_sec=1)
     warnings: list[Diagnostic] = []
     assert (
         _select_timeout_backend(
             auto_cfg, lambda x: x, {"x": object()}, warnings, 1, "h"
         )
-        == "thread"
+        == "process"
     )
-    assert warnings[0].code == "RUNNER_TIMEOUT_THREAD_FALLBACK"
+    assert warnings == []
     assert _call_runner_in_process(lambda p: {"ok": p}, {"x": 1}, 1) == {"ok": {"x": 1}}
     with pytest.raises(RuntimeError):
         _call_runner_in_process(
