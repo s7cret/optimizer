@@ -3,6 +3,7 @@ import multiprocessing as mp
 import os
 import pickle
 import queue
+import sys
 import threading
 import time
 import traceback
@@ -18,9 +19,10 @@ from optimizer.core.normalization import balanced_score
 from optimizer.core.process_containment import (
     attach_trial_cgroup as _attach_trial_cgroup,
     create_trial_cgroup as _create_trial_cgroup,
+    enable_child_subreaper as _enable_child_subreaper,
     kill_trial_cgroup as _kill_trial_cgroup,
     remove_trial_cgroup as _remove_trial_cgroup,
-    signal as signal,
+    supervise_runner_worker as _supervise_runner_worker,
     terminate_runner_process as _terminate_runner_process,
 )
 from optimizer.core.expression import stable_hash
@@ -60,16 +62,30 @@ def _invoke_runner(runner, payload):
 
 
 def _runner_process_entry(
-    out, runner, payload, isolate_process_group=False, start_gate=None
+    out, runner, data, isolate=False, start=None, finish=None, watch=False
 ):
-    if start_gate is not None:
-        start_gate.wait()
-    if isolate_process_group and hasattr(os, "setsid"):
-        os.setsid()
     try:
-        out.put(("ok", _invoke_runner(runner, payload)))
-    except BaseException as exc:
-        out.put(("err", exc.__class__.__name__, str(exc), traceback.format_exc()))
+        try:
+            linux = sys.platform.startswith("linux")
+            if isolate and linux and not _enable_child_subreaper():
+                raise RuntimeError("failed to enable child-subreaper containment")
+            if start is not None:
+                start.wait()
+            if isolate and hasattr(os, "setsid"):
+                os.setsid()
+
+            def worker():
+                out.put(("ok", _invoke_runner(runner, data)))
+
+            if watch and linux:
+                _supervise_runner_worker(out, worker)
+            else:
+                worker()
+        except BaseException as exc:
+            out.put(("err", exc.__class__.__name__, str(exc), traceback.format_exc()))
+    finally:
+        if finish is not None:
+            finish.wait()
 
 
 def _is_picklable(value):
@@ -92,26 +108,39 @@ def _call_runner_in_process(runner, payload, timeout):
     out = ctx.Queue(maxsize=1)
     event_factory = getattr(ctx, "Event", None)
     start_gate: Any = event_factory() if callable(event_factory) else None
+    finish_gate: Any = event_factory() if callable(event_factory) else None
     cgroup = _create_trial_cgroup()
     proc = ctx.Process(
         target=_runner_process_entry,
-        args=(out, runner, payload, True, start_gate),
+        args=(out, runner, payload, True, start_gate, finish_gate, True),
     )
+    proc_reaped = False
+    cgroup_terminated = False
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning)
         try:
             proc.start()
         except BaseException:
-            if cgroup is not None:
-                _remove_trial_cgroup(cgroup)
+            try:
+                if getattr(proc, "pid", None) is not None:
+                    _terminate_runner_process(proc, cgroup)
+                    proc_reaped = True
+                    cgroup_terminated = cgroup is not None
+            finally:
+                out.close()
+                out.cancel_join_thread()
+                if cgroup is not None:
+                    if not cgroup_terminated:
+                        _kill_trial_cgroup(cgroup)
+                    _remove_trial_cgroup(cgroup)
             raise
-    if cgroup is not None and not _attach_trial_cgroup(cgroup, proc):
-        _remove_trial_cgroup(cgroup)
-        cgroup = None
-    if start_gate is not None:
-        start_gate.set()
     record: Any = None
     try:
+        if cgroup is not None and not _attach_trial_cgroup(cgroup, proc):
+            _remove_trial_cgroup(cgroup)
+            cgroup = None
+        if start_gate is not None:
+            start_gate.set()
         blocking_get = getattr(out, "get", None)
         if callable(blocking_get):
             try:
@@ -120,8 +149,10 @@ def _call_runner_in_process(runner, payload, timeout):
                 proc.join(0)
                 if proc.is_alive():
                     _terminate_runner_process(proc, cgroup)
-                    cgroup = None
+                    proc_reaped = True
+                    cgroup_terminated = cgroup is not None
                     raise concurrent.futures.TimeoutError("trial timeout") from exc
+                proc_reaped = True
                 if proc.exitcode == 0:
                     raise RuntimeError(
                         "runner process exited without a result"
@@ -129,16 +160,16 @@ def _call_runner_in_process(runner, payload, timeout):
                 raise RuntimeError(
                     f"runner process exited with code {proc.exitcode}"
                 ) from exc
-            proc.join(2)
-            if proc.is_alive():
-                _terminate_runner_process(proc, cgroup)
-                cgroup = None
+            _terminate_runner_process(proc, None)
+            proc_reaped = True
         else:
             proc.join(timeout)
             if proc.is_alive():
                 _terminate_runner_process(proc, cgroup)
-                cgroup = None
+                proc_reaped = True
+                cgroup_terminated = cgroup is not None
                 raise concurrent.futures.TimeoutError("trial timeout")
+            proc_reaped = True
             try:
                 record = out.get_nowait()
             except queue.Empty as exc:
@@ -150,11 +181,19 @@ def _call_runner_in_process(runner, payload, timeout):
                     f"runner process exited with code {proc.exitcode}"
                 ) from exc
     finally:
-        out.close()
-        out.cancel_join_thread()
-        if cgroup is not None:
-            _kill_trial_cgroup(cgroup)
-            _remove_trial_cgroup(cgroup)
+        try:
+            if not proc_reaped:
+                _terminate_runner_process(proc, cgroup)
+                cgroup_terminated = cgroup is not None
+        finally:
+            try:
+                out.close()
+                out.cancel_join_thread()
+            finally:
+                if cgroup is not None:
+                    if not cgroup_terminated:
+                        _kill_trial_cgroup(cgroup)
+                    _remove_trial_cgroup(cgroup)
     if record is None:
         raise RuntimeError("runner process completed without a result record")
     status, *parts = record
@@ -198,8 +237,6 @@ def _select_timeout_backend(
 def _call_with_timeout(fn, timeout):
     if timeout is None or timeout <= 0:
         return fn()
-    # Thread backend cannot forcibly kill arbitrary Python/user code, but this
-    # returns control on timeout instead of blocking in executor shutdown.
     ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     fut = ex.submit(fn)
     try:
@@ -587,10 +624,6 @@ def run_one(
             )
         bs = balanced_score(metrics)
         r = getattr(raw, "to_dict", lambda: raw if isinstance(raw, dict) else None)()
-        # `passed_constraints` means hard-threshold eligibility, not whether the
-        # trial remains visible in the leaderboard. In `penalty` mode a hard
-        # violator is kept and penalized, but it must still be ineligible for
-        # non-best_objective recommendations.
         trial = Trial(
             trial_id,
             dict(params),

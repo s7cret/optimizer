@@ -35,7 +35,7 @@ The optimizer core is deliberately separated from market data, Pine runtime, bro
 
 Optimizer does not fetch candles, parse Pine, lower AST, execute generated code, emulate fills, or place trades. It only coordinates parameter candidates and runner calls. The quality of optimizer output depends on the supplied runner, market data, scoring objective, constraints, and validation windows.
 
-Process timeouts are lifecycle containment for trusted runner integrations, not a security sandbox. On delegated Linux cgroup v2 installations, Optimizer kills the complete per-trial cgroup, including descendants that create a new session; other platforms fall back to process-group/direct-process termination. Run untrusted runner code under a separate operating-system identity or external sandbox.
+Process timeouts are lifecycle containment for trusted runner integrations, not a security sandbox. On Linux, Optimizer uses cgroup v2 when delegated and otherwise uses pidfd-pinned process-tree cleanup; other platforms use direct-process cleanup without unsafe numeric process-group signaling. Run untrusted runner code under a separate operating-system identity or external sandbox.
 
 ## Runner contract
 

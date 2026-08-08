@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import builtins
 import json
+import multiprocessing as mp
+import os
 import runpy
+import signal
 import subprocess
 import sys
+import threading
 import time
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,6 +27,19 @@ from optimizer.distribution import build_zip, iter_files, manifest
 from optimizer.errors import ParameterValidationError
 from optimizer.runners import backtest_engine as backtest_runner
 from optimizer.version import __version__
+
+
+def _raise_during_result_unpickle() -> None:
+    raise RuntimeError("unpickle exploded")
+
+
+class _ExplodesDuringResultUnpickle:
+    def __reduce__(self):  # type: ignore[no-untyped-def]
+        return _raise_during_result_unpickle, ()
+
+
+def _return_unpickle_exploder(_payload):  # type: ignore[no-untyped-def]
+    return _ExplodesDuringResultUnpickle()
 
 
 def test_release_version_is_4_0_1() -> None:
@@ -120,6 +138,286 @@ def test_process_timeout_kills_detached_runner_descendants(
     assert not marker.exists()
 
 
+def test_process_timeout_kills_detached_descendant_spawned_by_nonleader_thread(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(trial_runner, "_create_trial_cgroup", lambda: None)
+    marker = tmp_path / "threaded-detached-descendant-survived"
+
+    def runner(_payload):
+        spawned = threading.Event()
+
+        def spawn_detached() -> None:
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import pathlib,time; time.sleep(1.5); "
+                        f"pathlib.Path({str(marker)!r}).write_text('escaped')"
+                    ),
+                ],
+                start_new_session=True,
+            )
+            spawned.set()
+            time.sleep(5)
+
+        threading.Thread(target=spawn_detached).start()
+        spawned.wait()
+        time.sleep(5)
+
+    with pytest.raises(__import__("concurrent.futures").futures.TimeoutError):
+        trial_runner._call_runner_in_process(runner, {}, 1)
+    time.sleep(0.8)
+
+    assert not marker.exists()
+
+
+def test_process_timeout_prevents_late_detached_spawn_from_signaled_descendant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(trial_runner, "_create_trial_cgroup", lambda: None)
+    marker = tmp_path / "late-detached-grandchild-survived"
+    ready = tmp_path / "late-spawn-handler-ready"
+
+    def runner(_payload):
+        grandchild = (
+            "import pathlib,time; time.sleep(0.5); "
+            f"pathlib.Path({str(marker)!r}).write_text('escaped')"
+        )
+        helper = (
+            "import pathlib,signal,subprocess,sys,time\n"
+            "def handler(*_args):\n"
+            f" subprocess.Popen([sys.executable,'-c',{grandchild!r}],start_new_session=True)\n"
+            " raise SystemExit\n"
+            "signal.signal(signal.SIGTERM,handler)\n"
+            f"pathlib.Path({str(ready)!r}).write_text('ready')\n"
+            "time.sleep(10)\n"
+        )
+        subprocess.Popen(
+            [sys.executable, "-c", helper],
+            start_new_session=True,
+        )
+        deadline = time.monotonic() + 0.2
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        if not ready.exists():
+            raise RuntimeError("late-spawn helper did not become ready")
+        time.sleep(5)
+
+    with pytest.raises(__import__("concurrent.futures").futures.TimeoutError):
+        trial_runner._call_runner_in_process(runner, {}, 0.4)
+    time.sleep(0.8)
+
+    assert not marker.exists()
+
+
+def test_process_success_kills_detached_descendant_before_return(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(trial_runner, "_create_trial_cgroup", lambda: None)
+    marker = tmp_path / "successful-runner-descendant-survived"
+
+    def runner(_payload):
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import pathlib,time; time.sleep(0.5); "
+                    f"pathlib.Path({str(marker)!r}).write_text('escaped')"
+                ),
+            ],
+            start_new_session=True,
+        )
+        return 42
+
+    assert trial_runner._call_runner_in_process(runner, {}, 2) == 42
+    time.sleep(0.7)
+
+    assert not marker.exists()
+
+
+def test_process_result_unpickle_error_reaps_waiting_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(trial_runner, "_create_trial_cgroup", lambda: None)
+    before = {process.pid for process in mp.active_children()}
+    leaked = mp.active_children()[:0]
+
+    try:
+        with pytest.raises(RuntimeError, match="unpickle exploded"):
+            trial_runner._call_runner_in_process(_return_unpickle_exploder, {}, 2)
+    finally:
+        leaked = [
+            process
+            for process in mp.active_children()
+            if process.pid not in before and process.is_alive()
+        ]
+        for process in leaked:
+            process.kill()
+            process.join(2)
+
+    assert leaked == []
+
+
+def test_abrupt_runner_exit_contains_detached_descendant_without_cgroup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    marker = tmp_path / "abrupt-escape.marker"
+    child_pid_path = tmp_path / "abrupt-child.pid"
+    monkeypatch.setattr(trial_runner, "_create_trial_cgroup", lambda: None)
+
+    def runner(_payload):  # type: ignore[no-untyped-def]
+        code = (
+            "import os,pathlib,time; "
+            f"pathlib.Path({str(child_pid_path)!r}).write_text(str(os.getpid())); "
+            "time.sleep(0.4); "
+            f"pathlib.Path({str(marker)!r}).write_text('escaped')"
+        )
+        subprocess.Popen([sys.executable, "-c", code], start_new_session=True)
+        os._exit(7)
+
+    child_pid: int | None = None
+    try:
+        with pytest.raises(RuntimeError, match="exited with code 7"):
+            trial_runner._call_runner_in_process(runner, {}, 1)
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline and not child_pid_path.exists():
+            time.sleep(0.005)
+        if child_pid_path.exists():
+            child_pid = int(child_pid_path.read_text())
+        time.sleep(0.6)
+        assert not marker.exists()
+        if child_pid is not None:
+            assert not Path(f"/proc/{child_pid}").exists()
+    finally:
+        if child_pid is not None and Path(f"/proc/{child_pid}").exists():
+            os.kill(child_pid, signal.SIGKILL)
+
+
+def test_process_success_contains_descendant_reparented_during_snapshot(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    trigger = tmp_path / "trigger"
+    helper_pid_path = tmp_path / "helper.pid"
+    escaped_pid_path = tmp_path / "escaped.pid"
+    marker = tmp_path / "escaped.marker"
+    original_children = process_containment._process_children
+    fired = False
+
+    def process_state(pid: int) -> str | None:
+        try:
+            return Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()[0]
+        except (IndexError, OSError):
+            return None
+
+    def wrapped_children(pid: int) -> list[int]:
+        nonlocal fired
+        children = original_children(pid)
+        if not fired:
+            fired = True
+            trigger.write_text("spawn-and-exit")
+            deadline = time.monotonic() + 1
+            while time.monotonic() < deadline:
+                if helper_pid_path.exists() and escaped_pid_path.exists():
+                    helper_pid = int(helper_pid_path.read_text())
+                    if process_state(helper_pid) == "Z":
+                        break
+                time.sleep(0.002)
+        return children
+
+    def runner(_payload):  # type: ignore[no-untyped-def]
+        escaped_code = (
+            "import os,pathlib,time; "
+            f"pathlib.Path({str(escaped_pid_path)!r}).write_text(str(os.getpid())); "
+            "time.sleep(0.45); "
+            f"pathlib.Path({str(marker)!r}).write_text('escaped')"
+        )
+        helper_code = (
+            "import os,pathlib,subprocess,sys,time; "
+            f"pathlib.Path({str(helper_pid_path)!r}).write_text(str(os.getpid())); "
+            f"trigger=pathlib.Path({str(trigger)!r}); "
+            "deadline=time.monotonic()+3; "
+            'exec("while not trigger.exists() and time.monotonic() < deadline:\\n time.sleep(0.001)"); '
+            f"subprocess.Popen([sys.executable,'-c',{escaped_code!r}],start_new_session=True); "
+            "os._exit(0)"
+        )
+        subprocess.Popen([sys.executable, "-c", helper_code])
+        return 42
+
+    monkeypatch.setattr(trial_runner, "_create_trial_cgroup", lambda: None)
+    monkeypatch.setattr(process_containment, "_process_children", wrapped_children)
+    escaped_pid = None
+    try:
+        assert trial_runner._call_runner_in_process(runner, {}, 2) == 42
+        if escaped_pid_path.exists():
+            escaped_pid = int(escaped_pid_path.read_text())
+        time.sleep(0.7)
+        assert not marker.exists()
+    finally:
+        if escaped_pid is not None and process_state(escaped_pid) is not None:
+            os.kill(escaped_pid, signal.SIGKILL)
+
+
+def test_process_success_freezes_runner_before_descendant_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(trial_runner, "_create_trial_cgroup", lambda: None)
+    trigger = tmp_path / "snapshot-complete"
+    child_pid_file = tmp_path / "child.pid"
+    marker = tmp_path / "post-snapshot-descendant-survived"
+    original_process_children = process_containment._process_children
+    triggered = False
+
+    def wrapped_process_children(pid: int) -> list[int]:
+        nonlocal triggered
+        children = original_process_children(pid)
+        if not triggered:
+            triggered = True
+            trigger.write_text("go")
+            deadline = time.monotonic() + 0.3
+            while not child_pid_file.exists() and time.monotonic() < deadline:
+                time.sleep(0.002)
+            time.sleep(0.03)
+        return children
+
+    def runner(_payload):
+        def spawn_after_snapshot() -> None:
+            deadline = time.monotonic() + 2
+            while not trigger.exists() and time.monotonic() < deadline:
+                time.sleep(0.001)
+            if not trigger.exists():
+                return
+            child_code = (
+                "import os,pathlib,time; "
+                f"pathlib.Path({str(child_pid_file)!r}).write_text(str(os.getpid())); "
+                "time.sleep(0.4); "
+                f"pathlib.Path({str(marker)!r}).write_text('escaped'); "
+                "time.sleep(10)"
+            )
+            subprocess.Popen([sys.executable, "-c", child_code], start_new_session=True)
+
+        threading.Thread(target=spawn_after_snapshot, daemon=True).start()
+        return 42
+
+    monkeypatch.setattr(
+        process_containment, "_process_children", wrapped_process_children
+    )
+    try:
+        assert trial_runner._call_runner_in_process(runner, {}, 2) == 42
+        time.sleep(0.7)
+        assert triggered is True
+        assert not marker.exists()
+    finally:
+        if child_pid_file.exists():
+            child_pid = int(child_pid_file.read_text())
+            try:
+                os.kill(child_pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
 def test_process_timeout_backend_drains_large_success_before_join() -> None:
     payload = trial_runner._call_runner_in_process(
         lambda _payload: b"x" * (8 * 1024 * 1024),
@@ -154,6 +452,7 @@ def test_process_group_helpers_contain_startup_and_reap_races(
             return False
 
     process = Process()
+    assert process_containment.isolated_process_group(SimpleNamespace(pid=None)) is None
     monkeypatch.setattr(
         trial_runner.os,
         "getpgid",
@@ -169,10 +468,11 @@ def test_process_group_helpers_contain_startup_and_reap_races(
         raise ProcessLookupError
 
     monkeypatch.setattr(trial_runner.os, "killpg", missing_group)
+    monkeypatch.setattr(process_containment.sys, "platform", "darwin")
     trial_runner._terminate_runner_process(process)
 
-    assert signals == [trial_runner.signal.SIGTERM, trial_runner.signal.SIGKILL]
-    assert process.joins == [2, None]
+    assert signals == []
+    assert process.joins == [2, 0]
 
 
 def test_process_group_fallback_tolerates_already_reaped_process() -> None:
@@ -193,7 +493,7 @@ def test_process_group_fallback_tolerates_already_reaped_process() -> None:
 
     process = GoneProcess()
     trial_runner._terminate_runner_process(process)
-    assert process.joins == [2, None]
+    assert process.joins == [2, 0]
 
 
 def test_iter_files_selects_files_relative_to_arbitrary_root(tmp_path: Path) -> None:
