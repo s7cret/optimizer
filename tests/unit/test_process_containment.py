@@ -1472,6 +1472,24 @@ def test_process_call_cgroup_attach_failure_and_success_cleanup(
     assert trial_runner._call_runner_in_process(lambda value: value, {}, 1) == 42
     assert actions == ["kill", "remove"]
 
+    class TimedOut(Completed):
+        exitcode = None
+
+        def is_alive(self) -> bool:
+            return True
+
+    actions.clear()
+    context = _Context(TimedOut(), _Queue())
+    monkeypatch.setattr(trial_runner.mp, "get_context", lambda _name: context)
+    monkeypatch.setattr(
+        trial_runner,
+        "_terminate_runner_process",
+        lambda _proc, _group: actions.append("terminate"),
+    )
+    with pytest.raises(__import__("concurrent.futures").futures.TimeoutError):
+        trial_runner._call_runner_in_process(lambda value: value, {}, 1)
+    assert actions == ["terminate", "remove"]
+
 
 def test_process_call_start_gate_failure_reaps_started_runner(
     monkeypatch: pytest.MonkeyPatch,
