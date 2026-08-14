@@ -1,8 +1,8 @@
-# Optimizer 4.0.1
+# Optimizer 4.0.2
 
 > Dependency-light parameter optimizer and runner contract layer for OpenPine strategy backtests.
 
-[![Version](https://img.shields.io/badge/version-4.0.1-blue)](https://github.com/s7cret/optimizer) [![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)](https://github.com/s7cret/optimizer) [![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/s7cret/optimizer)
+[![Version](https://img.shields.io/badge/version-4.0.2-blue)](https://github.com/s7cret/optimizer) [![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)](https://github.com/s7cret/optimizer) [![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/s7cret/optimizer)
 
 
 **GitHub description:** Optimizer provides parameter-space validation, search algorithms, scoring, ranking, resume metadata, and reports for OpenPine/backtest runners through a clean runner protocol.
@@ -61,7 +61,7 @@ python -m pip install -e '.[dev]'
 Install from GitHub tag:
 
 ```bash
-python -m pip install 'git+https://github.com/s7cret/optimizer.git@v4.0.1'
+python -m pip install 'git+https://github.com/s7cret/optimizer.git@v4.0.2'
 ```
 
 ## Python quick start

@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.0.2
+
+- Refreshed package and release evidence for the coordinated OpenPine 4.0.2 stack.
+- Preserved optimizer runner and search contracts without behavioral changes.
+
 ## 4.0.1
 
 - Published the hardened OpenPine 4.0.1 stack with unchanged optimizer runner contracts.

@@ -43,7 +43,7 @@ def _return_unpickle_exploder(_payload):  # type: ignore[no-untyped-def]
 
 
 def test_release_version_is_4_0_1() -> None:
-    assert __version__ == "4.0.1"
+    assert __version__ == "4.0.2"
 
 
 def test_stable_hash_falls_back_when_backtest_engine_is_unavailable(

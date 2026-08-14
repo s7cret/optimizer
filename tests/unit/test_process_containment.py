@@ -1302,6 +1302,7 @@ def test_runner_process_entry_waits_for_start_and_finish_gates(
     monkeypatch.setattr(
         trial_runner, "sys", SimpleNamespace(platform="darwin"), raising=False
     )
+    monkeypatch.setattr(trial_runner.os, "setsid", lambda: None)
     trial_runner._runner_process_entry(output, lambda payload: payload, {"ok": 2}, True)
     assert output.get_nowait() == ("ok", {"ok": 2})
 
