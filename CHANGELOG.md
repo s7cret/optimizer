@@ -1,5 +1,10 @@
 # Changelog
 
+## 5.0.0rc1
+
+- Added deterministic `openpine.trial.v2` TrialKey identity with stack/profile/snapshot pins.
+- Package version moved onto the 5.0 candidate train. Not a release tag.
+
 ## 4.0.2
 
 - Refreshed package and release evidence for the coordinated OpenPine 4.0.2 stack.

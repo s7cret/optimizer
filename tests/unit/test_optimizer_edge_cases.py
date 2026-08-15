@@ -407,7 +407,7 @@ def test_distribution_quality_release_and_module_entrypoints(
     json_path = tmp_path / "release.json"
     assert release_main(["--root", str(root), "--json", str(json_path)]) == 1
     assert (
-        json.loads(json_path.read_text(encoding="utf-8"))["package_version"] == "4.0.2"
+        json.loads(json_path.read_text(encoding="utf-8"))["package_version"] == "5.0.0rc1"
     )
 
     with pytest.raises(SystemExit) as exc, warnings.catch_warnings():
