@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [{name = "OpenClaw"}]
 dependencies = [
-  "openpine-contracts==1.0.0rc1",
+  "openpine-contracts @ git+https://github.com/s7cret/openpine-contracts.git@71d0c15da39071b4649ce81a9bbaa7cb5154db6d",
 ]
 
 [project.urls]
