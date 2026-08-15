@@ -71,7 +71,12 @@ def _normalize_fold_window(fold_window: Any) -> dict[str, str] | None:
         raise TrialKeyError("fold_window must be a mapping or null")
     start = fold_window.get("start")
     end = fold_window.get("end")
-    if not isinstance(start, int) or not isinstance(end, int) or isinstance(start, bool) or isinstance(end, bool):
+    if (
+        not isinstance(start, int)
+        or not isinstance(end, int)
+        or isinstance(start, bool)
+        or isinstance(end, bool)
+    ):
         raise TrialKeyError("fold_window start/end must be integers")
     if end <= start:
         raise TrialKeyError("fold_window end must be greater than start")
@@ -97,7 +102,9 @@ def identity_payload(
     if seed is not None and (not isinstance(seed, int) or isinstance(seed, bool)):
         raise TrialKeyError("seed must be an integer or null")
     payload = {
-        "strategy_artifact_hash": _require_text("strategy_artifact_hash", strategy_artifact_hash),
+        "strategy_artifact_hash": _require_text(
+            "strategy_artifact_hash", strategy_artifact_hash
+        ),
         "snapshot_hash": _require_text("snapshot_hash", snapshot_hash),
         "parameters": normalize_parameters(parameters),
         "engine_version": _require_text("engine_version", engine_version),
@@ -137,7 +144,11 @@ def make_trial_record(
     metrics: Mapping[str, str] | None = None,
     retry_count: int = 0,
 ) -> dict[str, Any]:
-    if not isinstance(created_at_utc_ms, int) or isinstance(created_at_utc_ms, bool) or created_at_utc_ms < 0:
+    if (
+        not isinstance(created_at_utc_ms, int)
+        or isinstance(created_at_utc_ms, bool)
+        or created_at_utc_ms < 0
+    ):
         raise TrialKeyError("created_at_utc_ms must be a non-negative integer")
     if retry_count < 0:
         raise TrialKeyError("retry_count must be >= 0")

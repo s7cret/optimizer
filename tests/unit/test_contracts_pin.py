@@ -2,8 +2,12 @@ from pathlib import Path
 
 
 def test_openpine_contracts_pin_is_exact_git_sha() -> None:
-    text = Path(__file__).resolve().parents[2].joinpath("pyproject.toml").read_text(
-        encoding="utf-8"
+    text = (
+        Path(__file__)
+        .resolve()
+        .parents[2]
+        .joinpath("pyproject.toml")
+        .read_text(encoding="utf-8")
     )
     assert "openpine-contracts==" not in text
     assert "git+https://github.com/s7cret/openpine-contracts.git@" in text
