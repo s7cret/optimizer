@@ -14,15 +14,13 @@ class SQLiteStorage:
         self._schema()
 
     def _schema(self):
-        self.conn.executescript(
-            """
+        self.conn.executescript("""
         CREATE TABLE IF NOT EXISTS runs(id INTEGER PRIMARY KEY, fingerprints TEXT NOT NULL, created_at INTEGER DEFAULT (strftime('%s','now')));
         CREATE TABLE IF NOT EXISTS trials(id INTEGER PRIMARY KEY, status TEXT, params_hash TEXT UNIQUE, params TEXT, metrics TEXT, objective_value REAL, payload TEXT);
         CREATE INDEX IF NOT EXISTS idx_trials_status ON trials(status);
         CREATE INDEX IF NOT EXISTS idx_trials_params_hash ON trials(params_hash);
         CREATE TABLE IF NOT EXISTS result_profiles(name TEXT PRIMARY KEY, trial_id INTEGER, reason TEXT, score_name TEXT, score_value REAL, payload TEXT);
-        """
-        )
+        """)
         self.conn.commit()
 
     def init_run(self, fingerprints):
