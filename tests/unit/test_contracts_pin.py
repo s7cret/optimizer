@@ -7,7 +7,6 @@ def test_contracts_pin_and_catalog() -> None:
     text = Path("pyproject.toml").read_text(encoding="utf-8")
     assert (
         "openpine-contracts @ git+https://github.com/s7cret/openpine-contracts.git@"
-        "51e32ebaaf02eecb81443e8ca7e89b2543cb25a3"
-        in text
+        "af9ecbc455e9af83cdc609f6b6ff85c40fb6c8bb" in text
     )
     assert "openpine.trial.v2" in list_schema_ids()
