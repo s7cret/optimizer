@@ -25,7 +25,7 @@ jobs:
         with:
           repository: s7cret/openpine-contracts
           ref: 91c405e759206b542d22df242ef55ac49b1f0bb4
-          path: openpine-contracts
+          path: stack/openpine-contracts
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -37,10 +37,12 @@ jobs:
       - name: Install package and development tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ./openpine-contracts
-          python -m pip install -e ".[dev]"
+          python -m pip install build
           mkdir -p "$RUNNER_TEMP/contracts-wheel"
-          python -m build --wheel --outdir "$RUNNER_TEMP/contracts-wheel" ./openpine-contracts
+          python -m build --wheel --outdir "$RUNNER_TEMP/contracts-wheel" ./stack/openpine-contracts
+          python -m pip install "$(echo "$RUNNER_TEMP"/contracts-wheel/openpine_contracts-*.whl)"
+          python -m pip install -e ".[dev]"
+          python -c "import shutil; shutil.rmtree('stack')"
 
       - name: Run full release gate
         run: >-
