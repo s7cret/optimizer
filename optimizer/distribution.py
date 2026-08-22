@@ -12,8 +12,14 @@ from pathlib import Path
 
 CACHE_PARTS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 VCS_PARTS = {".git"}
+LOCAL_ENV_PARTS = {".venv"}
 BUILD_ARTIFACT_PARTS = {"dist", "build", "optimizer_results"}
-EXCLUDED_PARTS = {*CACHE_PARTS, *VCS_PARTS, *BUILD_ARTIFACT_PARTS}
+EXCLUDED_PARTS = {
+    *CACHE_PARTS,
+    *VCS_PARTS,
+    *LOCAL_ENV_PARTS,
+    *BUILD_ARTIFACT_PARTS,
+}
 EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".coverage", ".log"}
 EXCLUDED_NAMES = {".coverage"}
 
@@ -87,6 +93,7 @@ def _forbidden_entries(root_path: Path) -> list[str]:
             for name in dir_names
             if name not in CACHE_PARTS
             and name not in VCS_PARTS
+            and name not in LOCAL_ENV_PARTS
             and not name.endswith(".egg-info")
         ]
         for name in [*dir_names, *file_names]:

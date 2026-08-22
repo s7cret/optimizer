@@ -267,7 +267,8 @@ def test_analysis_reporting_storage_and_cli(tmp_path: Path, capsys):
         json.loads(to_json(result, tmp_path / "result.json"))["status"] == "completed"
     )
     write_csv(result.top_trials, tmp_path / "trials.csv")
-    assert list(csv.reader((tmp_path / "trials.csv").open()))[0][0] == "id"
+    with (tmp_path / "trials.csv").open(encoding="utf-8", newline="") as handle:
+        assert next(csv.reader(handle))[0] == "id"
     print_summary(result)
     assert "Recommended" in capsys.readouterr().out
     assert "best_objective" in summarize(result)

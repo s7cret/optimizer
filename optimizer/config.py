@@ -99,6 +99,17 @@ class OptimizerConfig:
     runner_fingerprint: str | None = None
     data_fingerprint: str | None = None
     engine_config_hash: str | None = None
+    generated_artifact_hash: str | None = None
+    data_snapshot_series_hash: str | None = None
+    engine_build_hash: str | None = None
+    stack_manifest_hash: str | None = None
+    semantic_profile: str = "strict_5x"
+    finality_policy: object = field(default_factory=lambda: {"bars": "FINAL"})
+    warmup_policy: object = field(default_factory=lambda: {"mode": "CALC_ONLY"})
+    score_policy: object = field(default_factory=lambda: {"window": "closed"})
+    end_policy: object = field(default_factory=lambda: {"mode": "liquidate"})
+    objective_version: str = "objective.v1"
+    constraints_version: str = "constraints.v1"
     run_id: str | None = None
     output_dir: Path = Path("./optimizer_results")
     storage_backend: Literal["sqlite", "json"] = "sqlite"

@@ -40,8 +40,54 @@ class Trial:
     params_hash: str | None = None
     raw_objective_value: float | None = None
     runtime_fingerprint: str | None = None
+    trial_key: str | None = None
+    identity_payload: dict | None = None
+    lifecycle: Literal[
+        "pending", "running", "completed", "failed", "timeout", "canceled"
+    ] = "completed"
+    constraints_snapshot: dict = field(default_factory=dict)
 
     def to_dict(self):
         d = asdict(self)
         d["missing_metrics"] = sorted(self.missing_metrics)
         return d
+
+    @classmethod
+    def pending(
+        cls,
+        trial_id: int,
+        params: dict[str, object],
+        *,
+        trial_key: str,
+        identity_payload: dict,
+        params_hash: str,
+        objective_direction: Literal["maximize", "minimize"],
+        parameter_space_hash: str,
+        optimizer_config_hash: str,
+        constraints_snapshot: dict,
+    ) -> "Trial":
+        return cls(
+            id=trial_id,
+            params=dict(params),
+            metrics={},
+            objective_value=None,
+            objective_direction=objective_direction,
+            rank=None,
+            passed_constraints=False,
+            constraint_violations={},
+            constraint_violation_count=0,
+            balanced_score=None,
+            robustness_score=None,
+            overfitting_score=None,
+            profit_concentration_score=None,
+            backtest_result=None,
+            execution_time_sec=0.0,
+            status="failed",
+            params_hash=params_hash,
+            parameter_space_hash=parameter_space_hash,
+            optimizer_config_hash=optimizer_config_hash,
+            trial_key=trial_key,
+            identity_payload=dict(identity_payload),
+            lifecycle="pending",
+            constraints_snapshot=dict(constraints_snapshot),
+        )

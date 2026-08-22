@@ -60,7 +60,9 @@ def test_best_objective_mode_can_recommend_best_even_if_constraints_fail(tmp_pat
     assert res.recommended_trial.passed_constraints is False
 
 
-def test_adaptive_grid_refinement_uses_minimize_direction(tmp_path):
+def test_adaptive_grid_refinement_uses_minimize_direction_without_reexecution(
+    tmp_path,
+):
     seen = []
 
     def runner(p):
@@ -85,10 +87,12 @@ def test_adaptive_grid_refinement_uses_minimize_direction(tmp_path):
         use_profile_auto_constraints=False,
         timeout_per_trial_sec=0,
     )
-    optimize([Parameter("x", "int", 1, 1, 3, 1)], runner, cfg)
+    result = optimize([Parameter("x", "int", 1, 1, 3, 1)], runner, cfg)
 
-    assert seen[:3] == [1, 2, 3]
-    assert seen[3] == 1
+    assert seen == [1, 2, 3]
+    assert not isinstance(result, dict)
+    assert result.recommended_trial is not None
+    assert result.recommended_trial.params["x"] == 1
 
 
 def test_random_invalid_cross_constraint_combos_are_not_persisted_as_production_trials(

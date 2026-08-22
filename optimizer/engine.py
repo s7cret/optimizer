@@ -7,14 +7,12 @@ from concurrent.futures import (
 )
 import json
 import os
-import time
-import traceback
 from itertools import islice
 from optimizer.config import OptimizerConfig
 from optimizer.core.parameter_space import ParameterSpace
 from optimizer.core.trial_runner import run_one
 from optimizer.core.expression import stable_hash
-from optimizer.core.objective import objective_direction
+
 from optimizer.results.leaderboard import rank_trials
 from optimizer.results.result import OptimizerRunResult
 from optimizer.selection.selector import build_profiles, choose_recommended
@@ -30,6 +28,11 @@ from optimizer.algorithms import (
     genetic,
 )
 from optimizer.core.diagnostic import Diagnostic
+from optimizer.core.durable_trial import (
+    bind_trial_identity as _bind_trial_identity,
+    failed_worker_trial as _failed_worker_trial,
+    pending_trial as _pending_trial,
+)
 from optimizer.errors import UnsupportedFeatureError
 from optimizer.version import __version__
 from optimizer.results.trial import Trial
@@ -132,51 +135,47 @@ def _stop_requested(trials, config):
     )
 
 
-def _failed_worker_trial(tid, params, exc, config, space_hash, config_hash):
-    direction = (
-        config.objective_direction
-        if config.objective_expression and config.objective_direction != "auto"
-        else (
-            "maximize"
-            if config.objective_expression
-            else objective_direction(config.objective, config.objective_direction)
+def _run_reserved(
+    tid,
+    params,
+    runner,
+    config,
+    space_hash,
+    config_hash,
+    store,
+    is_baseline=False,
+    baseline_name=None,
+):
+    if not hasattr(store, "reserve_trial"):
+        trial = run_one(
+            tid,
+            params,
+            runner,
+            config,
+            space_hash,
+            config_hash,
+            is_baseline,
+            baseline_name,
         )
-    )
-    params_hash = stable_hash(params)
-    diagnostic = Diagnostic(
-        "OPTIMIZER_WORKER_EXCEPTION",
-        f"{exc.__class__.__name__}: {exc}",
-        "error",
+        store.save_trial(trial)
+        return trial
+    pending = _pending_trial(tid, params, config, space_hash, config_hash)
+    if store.reserve_trial(pending, resume=config.resume) is None:
+        existing = store.load_trial_by_key(pending.trial_key)
+        return _trial_from_raw(existing)
+    trial = run_one(
         tid,
-        params_hash,
+        params,
+        runner,
+        config,
+        space_hash,
+        config_hash,
+        is_baseline,
+        baseline_name,
     )
-    now = int(time.time() * 1000)
-    return Trial(
-        tid,
-        dict(params),
-        {},
-        None,
-        direction,
-        None,
-        False,
-        {},
-        0,
-        None,
-        None,
-        None,
-        None,
-        None,
-        0.0,
-        "failed",
-        parameter_space_hash=space_hash,
-        optimizer_config_hash=config_hash,
-        error_message=str(exc),
-        traceback=traceback.format_exc(),
-        diagnostics=[diagnostic],
-        started_at=now,
-        finished_at=now,
-        params_hash=params_hash,
-    )
+    trial = _bind_trial_identity(trial, pending)
+    store.save_trial(trial)
+    return trial
 
 
 def _run_jobs(jobs, runner, config, space_hash, config_hash, store):
@@ -192,28 +191,46 @@ def _run_jobs(jobs, runner, config, space_hash, config_hash, store):
             pending = {}
 
             def submit_next():
-                try:
-                    tid, params = next(job_iter)
-                except StopIteration:
-                    return False
-                fut = ex.submit(
-                    run_one, tid, params, runner, config, space_hash, config_hash
-                )
-                pending[fut] = (tid, params)
-                return True
+                while True:
+                    try:
+                        tid, params = next(job_iter)
+                    except StopIteration:
+                        return False
+                    reservation = None
+                    if hasattr(store, "reserve_trial"):
+                        reservation = _pending_trial(
+                            tid, params, config, space_hash, config_hash
+                        )
+                        if (
+                            store.reserve_trial(reservation, resume=config.resume)
+                            is None
+                        ):
+                            existing = _trial_from_raw(
+                                store.load_trial_by_key(reservation.trial_key)
+                            )
+                            if existing is not None:
+                                trials.append(existing)
+                            continue
+                    fut = ex.submit(
+                        run_one, tid, params, runner, config, space_hash, config_hash
+                    )
+                    pending[fut] = (tid, params, reservation)
+                    return True
 
             for _ in range(min(config.max_parallel, len(jobs))):
                 submit_next()
             while pending:
                 done, _ = wait(pending, return_when=FIRST_COMPLETED)
                 for f in done:
-                    tid, params = pending.pop(f)
+                    tid, params, reservation = pending.pop(f)
                     try:
                         t = f.result()
                     except Exception as exc:
                         t = _failed_worker_trial(
                             tid, params, exc, config, space_hash, config_hash
                         )
+                    if reservation is not None:
+                        t = _bind_trial_identity(t, reservation)
                     store.save_trial(t)
                     trials.append(t)
                 if _stop_requested(trials, config):
@@ -229,9 +246,11 @@ def _run_jobs(jobs, runner, config, space_hash, config_hash, store):
             trials.sort(key=lambda t: order.get(t.id, t.id))
     else:
         for tid, params in jobs:
-            t = run_one(tid, params, runner, config, space_hash, config_hash)
-            store.save_trial(t)
-            trials.append(t)
+            t = _run_reserved(
+                tid, params, runner, config, space_hash, config_hash, store
+            )
+            if t is not None:
+                trials.append(t)
             if _stop_requested(trials, config):
                 break
     return trials
@@ -441,25 +460,30 @@ def optimize(
         for x in raw_existing
         if x.get("status") == "completed"
     }
-    trials = list(existing_trials)
+    trials = [
+        trial
+        for trial in existing_trials
+        if trial.lifecycle in {"completed", "failed", "timeout", "canceled"}
+    ]
     next_id = max([t.id for t in trials] or [0]) + 1
     if (
         config.baseline_params
         and config.run_baseline_first
         and stable_hash(config.baseline_params) not in done_hashes
     ):
-        t = run_one(
+        t = _run_reserved(
             0,
             config.baseline_params,
             runner,
             config,
             space_hash,
             config_hash,
+            store,
             True,
             config.baseline_name,
         )
-        store.save_trial(t)
-        trials.append(t)
+        if t is not None:
+            trials.append(t)
     if config.algorithm in {"genetic", "bayesian"}:
         advanced, next_id = _sequential_advanced(
             space, runner, config, space_hash, config_hash, store, next_id
@@ -487,6 +511,18 @@ def optimize(
         for p in profiles.values():
             store.save_profile(p)
     rec, rec_name = choose_recommended(profiles, config.selection_mode)
+    if rec is not None and hasattr(store, "save_champion"):
+        store.save_champion(
+            rec,
+            rec_name,
+            {
+                "selection_mode": config.selection_mode,
+                "objective": config.objective,
+                "objective_direction": config.objective_direction,
+                "objective_tie_epsilon": config.objective_tie_epsilon,
+            },
+            config.constraints,
+        )
     counts = {
         s: sum(1 for t in trials if t.status == s) for s in ["completed", "failed"]
     }

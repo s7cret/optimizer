@@ -8,7 +8,6 @@ import threading
 import time
 import traceback
 import warnings
-from dataclasses import dataclass
 from typing import Any
 
 from optimizer.core.metric_extractor import MetricExtractor
@@ -26,31 +25,12 @@ from optimizer.core.process_containment import (
     terminate_runner_process as _terminate_runner_process,
 )
 from optimizer.core.expression import stable_hash
+from optimizer.core.runner_response import NormalizedRunnerResponse
 from optimizer.results.trial import Trial
 from optimizer.core.diagnostic import Diagnostic
 from optimizer.protocols import RunnerRequest
 from optimizer.version import __version__
 from optimizer.core.contracts import ACCEPTED_RUNNER_CONTRACTS, RUNNER_CONTRACT
-
-
-@dataclass(frozen=True)
-class NormalizedRunnerResponse:
-    metrics_source: Any
-    hashes: dict[str, str]
-    diagnostics: list[Diagnostic]
-    is_contract_response: bool = False
-    trades_available: bool = False
-    equity_available: bool = False
-
-    @property
-    def summary_metrics_available(self) -> bool:
-        return bool(self.metrics_source)
-
-    def hash(self, name: str, raw: Any) -> str | None:
-        if name in self.hashes:
-            return self.hashes[name]
-        value = getattr(raw, name, None) if raw is not None else None
-        return None if value is None else str(value)
 
 
 def now_ms():
@@ -392,6 +372,7 @@ def run_one(
     metrics = {}
     raw = None
     timeout_backend = None
+    failure_lifecycle = "failed"
     params_hash = stable_hash(params)
     direction = (
         config.objective_direction
@@ -664,6 +645,7 @@ def run_one(
         return trial
     except concurrent.futures.TimeoutError:
         status = "failed"
+        failure_lifecycle = "timeout"
         err = "trial timeout"
         tr = traceback.format_exc()
         diags.append(Diagnostic("TRIAL_TIMEOUT", err, "error", trial_id, params_hash))
@@ -682,7 +664,7 @@ def run_one(
         err = str(e)
         tr = traceback.format_exc()
         diags.append(Diagnostic("TRIAL_FAILED", err, "error", trial_id, params_hash))
-    return _failed_trial(
+    failed = _failed_trial(
         trial_id,
         params,
         metrics,
@@ -698,3 +680,5 @@ def run_one(
         is_baseline,
         baseline_name,
     )
+    failed.lifecycle = failure_lifecycle
+    return failed

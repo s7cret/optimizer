@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 PYTHON="${PYTHON:-python}"
+CONTRACTS_WHEEL="${OPENPINE_CONTRACTS_WHEEL:-}"
+if [[ -z "$CONTRACTS_WHEEL" || ! -f "$CONTRACTS_WHEEL" ]]; then
+  echo "OPENPINE_CONTRACTS_WHEEL must name the exact local contracts wheel" >&2
+  exit 1
+fi
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 SRC="$TMPDIR/src"
@@ -32,7 +37,8 @@ def ignore(_directory: str, names: list[str]) -> set[str]:
 shutil.copytree(source, dest, dirs_exist_ok=True, ignore=ignore)
 PY
 "$PYTHON" -m build --wheel --outdir "$TMPDIR/dist" "$SRC"
-"$PYTHON" -m pip install --no-index --no-deps --target "$SITE_PACKAGES" "$TMPDIR"/dist/*.whl
+"$PYTHON" -m pip install --no-index --no-deps --target "$SITE_PACKAGES" \
+  "$CONTRACTS_WHEEL" "$TMPDIR"/dist/*.whl
 (
   cd "$TMPDIR"
   OPTIMIZER_WHEEL_SMOKE_OUT="$TMPDIR/optimizer_results" \

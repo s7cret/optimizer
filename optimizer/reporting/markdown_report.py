@@ -1,3 +1,6 @@
+from pathlib import Path
+
+
 def to_markdown(result, path=None):
     lines = [
         "# Optimizer Report",
@@ -23,5 +26,5 @@ def to_markdown(result, path=None):
         )
     text = "\n".join(lines) + "\n"
     if path:
-        open(path, "w").write(text)
+        Path(path).write_text(text, encoding="utf-8")
     return text

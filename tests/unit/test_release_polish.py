@@ -43,7 +43,7 @@ def _return_unpickle_exploder(_payload):  # type: ignore[no-untyped-def]
 
 
 def test_release_version_is_4_0_1() -> None:
-    assert __version__ == "4.0.2"
+    assert __version__ == "5.0.0rc3"
 
 
 def test_stable_hash_falls_back_when_backtest_engine_is_unavailable(
@@ -550,6 +550,9 @@ def test_distribution_manifest_ignores_git_and_egg_info_metadata(
     egg_info = root / "optimizer.egg-info"
     egg_info.mkdir()
     (egg_info / "PKG-INFO").write_text("generated metadata\n")
+    local_venv = root / ".venv" / "lib" / "python" / "site-packages" / "pkg" / "build"
+    local_venv.mkdir(parents=True)
+    (local_venv / "artifact.py").write_text("local only\n")
 
     worktree_report = manifest(root)
 

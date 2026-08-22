@@ -39,6 +39,10 @@ def _trial_compare(config):
                 return -1
             if left_secondary != right_secondary:
                 return -1 if left_secondary > right_secondary else 1
+        left_key = getattr(left, "trial_key", None)
+        right_key = getattr(right, "trial_key", None)
+        if left_key is not None and right_key is not None and left_key != right_key:
+            return -1 if left_key < right_key else 1
         return left.id - right.id
 
     return compare
