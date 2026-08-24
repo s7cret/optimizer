@@ -5,7 +5,6 @@ from contextlib import closing
 from pathlib import Path
 
 import pytest
-from openpine_contracts import seal_content_hash
 
 from optimizer import OptimizerConfig, Parameter, optimize
 from optimizer.engine import _pending_trial, _run_jobs, _run_reserved
@@ -18,6 +17,10 @@ from optimizer.storage.json_backend import JsonStorage
 from optimizer.storage.sqlite_backend import SQLiteStorage
 
 
+def _sha256(digit: str) -> str:
+    return "sha256:" + digit * 64
+
+
 def _config(output_dir: Path, **changes: object) -> OptimizerConfig:
     values: dict[str, object] = {
         "output_dir": output_dir,
@@ -26,13 +29,18 @@ def _config(output_dir: Path, **changes: object) -> OptimizerConfig:
         "report_profiles": False,
         "use_profile_auto_constraints": False,
         "timeout_per_trial_sec": 0,
-        "runner_fingerprint": "sha256:runner",
-        "generated_artifact_hash": "sha256:artifact",
-        "data_fingerprint": "sha256:data",
-        "data_snapshot_series_hash": "sha256:series",
-        "engine_build_hash": "sha256:engine-build",
-        "engine_config_hash": "sha256:engine-config",
-        "stack_manifest_hash": "sha256:stack",
+        "runner_fingerprint": _sha256("1"),
+        "generated_artifact_hash": _sha256("2"),
+        "data_fingerprint": _sha256("3"),
+        "data_snapshot_series_hash": _sha256("4"),
+        "engine_build_hash": _sha256("5"),
+        "engine_config_hash": _sha256("6"),
+        "stack_manifest_hash": _sha256("7"),
+        "optimizer_commit": "a" * 40,
+        "optimizer_id": "optimizer-1",
+        "strategy_id": "strategy-1",
+        "source_hash": _sha256("8"),
+        "emitted_module_hash": _sha256("9"),
         "semantic_profile": "strict_5x",
         "finality_policy": {"bars": "FINAL"},
         "warmup_policy": {"mode": "CALC_ONLY"},
@@ -168,7 +176,7 @@ def test_resume_reexecutes_only_unfinished_exact_identity(tmp_path: Path) -> Non
             (json.dumps(payload, sort_keys=True),),
         )
         conn.commit()
-    with pytest.raises(StorageError, match="identity payload"):
+    with pytest.raises(StorageError, match="identity schema"):
         optimize([Parameter("x", "int", 1, 1, 1, 1)], runner, cfg)
 
 
@@ -198,19 +206,12 @@ def test_failed_timeout_and_canceled_lifecycles_are_terminal(tmp_path: Path) -> 
     assert timed.lifecycle == "timeout"
 
     store = SQLiteStorage(tmp_path / "canceled")
-    pending_identity = seal_content_hash(
-        {"schema_id": "openpine.trial.v2", "marker": "pending"}
-    )
-    pending = Trial.pending(
+    pending = _pending_trial(
         1,
         {"x": 1},
-        trial_key=pending_identity["content_hash"],
-        identity_payload=pending_identity,
-        params_hash="params",
-        objective_direction="maximize",
-        parameter_space_hash="space",
-        optimizer_config_hash="config",
-        constraints_snapshot={"drawdown": {"max": 10}},
+        _config(tmp_path / "canceled"),
+        "space",
+        "config",
     )
     assert store.reserve_trial(pending, resume=False) is not None
     store.cancel_trial(pending.trial_key, "fail-fast")
@@ -319,7 +320,7 @@ def test_json_storage_identity_resume_conflict_and_cancel_edges(
         constraints_snapshot={},
     )
     monkeypatch.setattr(
-        "optimizer.storage.json_backend.verify_content_hash",
+        "optimizer.storage.json_backend.validate_trial_identity_payload",
         lambda *_args, **_kwargs: True,
     )
     with pytest.raises(StorageError, match="conflicts"):
@@ -357,7 +358,7 @@ def test_sqlite_storage_migration_identity_conflict_and_missing_edges(
         ("not-json", "malformed"),
         (json.dumps([]), "does not match"),
         (json.dumps({"content_hash": "sha256:other"}), "does not match"),
-        (json.dumps({"content_hash": "sha256:key"}), "content hash is invalid"),
+        (json.dumps({"content_hash": "sha256:key"}), "identity schema is invalid"),
     ):
         with pytest.raises(StorageError, match=message):
             SQLiteStorage._verify_identity("sha256:key", raw)
@@ -404,7 +405,7 @@ def test_sqlite_storage_migration_identity_conflict_and_missing_edges(
         constraints_snapshot={},
     )
     monkeypatch.setattr(
-        "optimizer.storage.sqlite_backend.verify_content_hash",
+        "optimizer.storage.sqlite_backend.validate_trial_identity_payload",
         lambda *_args, **_kwargs: True,
     )
     with pytest.raises(StorageError, match="conflicts"):

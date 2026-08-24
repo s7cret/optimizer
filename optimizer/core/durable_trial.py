@@ -7,7 +7,11 @@ from typing import Literal, cast
 from optimizer.core.diagnostic import Diagnostic
 from optimizer.core.expression import stable_hash
 from optimizer.core.objective import objective_direction
-from optimizer.core.trial_key import TrialIdentity, contract_schema_hashes
+from optimizer.core.trial_key import (
+    TrialIdentity,
+    contract_schema_hashes,
+    validate_critical_identity_hashes,
+)
 from optimizer.results.trial import Trial
 
 
@@ -25,7 +29,19 @@ def _direction(config) -> Literal["maximize", "minimize"]:
 
 
 def pending_trial(tid, params, config, space_hash, config_hash):
+    if not validate_critical_identity_hashes(config):
+        raise ValueError("durable trial identity is not configured")
     direction = _direction(config)
+    constraints = tuple(
+        {
+            "name": name,
+            "operator": str(operator).upper(),
+            "value": str(value),
+        }
+        for name, rules in sorted(config.constraints.items())
+        for operator, value in sorted(rules.items())
+        if not isinstance(value, bool)
+    )
     identity = TrialIdentity(
         generated_artifact_hash=config.generated_artifact_hash or "",
         data_snapshot_series_hash=(
@@ -42,17 +58,22 @@ def pending_trial(tid, params, config, space_hash, config_hash):
         contract_schema_hashes=contract_schema_hashes(),
         stack_manifest_hash=config.stack_manifest_hash or "",
         deterministic_seed=config.seed,
-        fold_identity=None,
-        walk_forward_identity=(
-            {
-                "windows": config.walk_forward_windows,
-                "mode": config.walk_forward_anchor_mode,
-            }
-            if config.algorithm == "walk_forward"
-            else None
-        ),
+        fold_identity=config.fold_identity,
+        walk_forward_identity=config.walk_forward_identity,
         objective_version=config.objective_version,
         constraints_version=config.constraints_version,
+        producer_commit=config.optimizer_commit or "",
+        optimizer_id=config.optimizer_id,
+        strategy_id=config.strategy_id,
+        source_hash=config.source_hash or config.generated_artifact_hash or "",
+        emitted_module_hash=config.emitted_module_hash
+        or config.generated_artifact_hash
+        or "",
+        numeric_policy=config.numeric_policy,
+        fill_policy=config.fill_policy,
+        objective_metric=config.objective,
+        objective_direction=direction.upper(),
+        constraints=constraints,
     ).seal()
     return Trial.pending(
         tid,

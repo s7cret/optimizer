@@ -2,8 +2,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from openpine_contracts import verify_content_hash
-
+from optimizer.core.trial_key import validate_trial_identity_payload
 from optimizer.errors import StorageError
 
 _TERMINAL = {"completed", "failed", "timeout", "canceled"}
@@ -85,8 +84,10 @@ class SQLiteStorage:
             raise StorageError("trial identity payload is malformed") from exc
         if not isinstance(payload, dict) or payload.get("content_hash") != trial_key:
             raise StorageError("trial identity payload does not match trial_key")
-        if not verify_content_hash(payload, schema_id="openpine.trial.v2"):
-            raise StorageError("trial identity payload content hash is invalid")
+        try:
+            validate_trial_identity_payload(trial_key, payload)
+        except ValueError as exc:
+            raise StorageError(f"trial identity schema is invalid: {exc}") from exc
         return payload
 
     def reserve_trial(self, trial, resume=True):

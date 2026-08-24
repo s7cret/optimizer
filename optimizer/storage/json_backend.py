@@ -2,8 +2,7 @@ import json
 import os
 from pathlib import Path
 
-from openpine_contracts import verify_content_hash
-
+from optimizer.core.trial_key import validate_trial_identity_payload
 from optimizer.errors import StorageError
 
 
@@ -51,20 +50,20 @@ class JsonStorage:
     def reserve_trial(self, trial, resume=True):
         if not trial.trial_key or not trial.identity_payload:
             raise StorageError("trial reservation requires TrialKey identity")
-        if trial.identity_payload.get(
-            "content_hash"
-        ) != trial.trial_key or not verify_content_hash(
-            trial.identity_payload, schema_id="openpine.trial.v2"
-        ):
-            raise StorageError("trial identity payload is invalid")
+        try:
+            validate_trial_identity_payload(trial.trial_key, trial.identity_payload)
+        except ValueError as exc:
+            raise StorageError(f"trial identity schema is invalid: {exc}") from exc
         for row in self.load_trials_raw():
             if row.get("trial_key") != trial.trial_key:
                 continue
             identity = row.get("identity_payload")
-            if not isinstance(identity, dict) or not verify_content_hash(
-                identity, schema_id="openpine.trial.v2"
-            ):
+            if not isinstance(identity, dict):
                 raise StorageError("trial identity payload is invalid")
+            try:
+                validate_trial_identity_payload(trial.trial_key, identity)
+            except ValueError as exc:
+                raise StorageError(f"trial identity schema is invalid: {exc}") from exc
             if identity != trial.identity_payload:
                 raise StorageError(
                     "trial identity payload conflicts with persisted identity"
@@ -78,7 +77,7 @@ class JsonStorage:
         return trial
 
     def load_trial_by_key(self, trial_key):
-        return next(
+        row = next(
             (
                 row
                 for row in self.load_trials_raw()
@@ -86,6 +85,15 @@ class JsonStorage:
             ),
             None,
         )
+        if row is not None:
+            identity = row.get("identity_payload")
+            if not isinstance(identity, dict):
+                raise StorageError("trial identity payload is missing")
+            try:
+                validate_trial_identity_payload(trial_key, identity)
+            except ValueError as exc:
+                raise StorageError(f"trial identity schema is invalid: {exc}") from exc
+        return row
 
     def cancel_trial(self, trial_key, reason):
         row = self.load_trial_by_key(trial_key)

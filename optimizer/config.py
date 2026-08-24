@@ -103,6 +103,15 @@ class OptimizerConfig:
     data_snapshot_series_hash: str | None = None
     engine_build_hash: str | None = None
     stack_manifest_hash: str | None = None
+    optimizer_commit: str | None = None
+    optimizer_id: str = "optimizer"
+    strategy_id: str = "strategy"
+    source_hash: str | None = None
+    emitted_module_hash: str | None = None
+    numeric_policy: str = "decimal-string.v1"
+    fill_policy: str = "backtest-engine.v1"
+    fold_identity: object | None = None
+    walk_forward_identity: object | None = None
     semantic_profile: str = "strict_5x"
     finality_policy: object = field(default_factory=lambda: {"bars": "FINAL"})
     warmup_policy: object = field(default_factory=lambda: {"mode": "CALC_ONLY"})

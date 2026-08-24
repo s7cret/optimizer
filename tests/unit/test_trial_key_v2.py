@@ -16,32 +16,54 @@ from optimizer.core.trial_key import (
 )
 
 
+def _sha256(digit: str) -> str:
+    return "sha256:" + digit * 64
+
+
 def _identity() -> TrialIdentity:
     return TrialIdentity(
-        generated_artifact_hash="sha256:artifact",
-        data_snapshot_series_hash="sha256:series",
+        generated_artifact_hash=_sha256("1"),
+        data_snapshot_series_hash=_sha256("2"),
         parameters={
             "length": 10,
             "threshold": 0.125,
             "nested": [Decimal("1.500"), True],
         },
-        engine_build_hash="sha256:engine-build",
-        engine_config_hash="sha256:engine-config",
+        engine_build_hash=_sha256("3"),
+        engine_config_hash=_sha256("4"),
         semantic_profile="strict_5x",
         finality_policy={"bars": "FINAL"},
         warmup_policy={"mode": "CALC_ONLY", "bars": 20},
         score_policy={"window": "closed_range", "epsilon": 1e-12},
         end_policy={"mode": "liquidate"},
         contract_schema_hashes={
-            "openpine.generated_artifact.v2": "sha256:generated-schema",
-            "openpine.trial.v2": "sha256:trial-schema",
+            "openpine.generated_artifact.v2": _sha256("5"),
+            "openpine.trial.identity.v1": _sha256("6"),
         },
-        stack_manifest_hash="sha256:stack",
+        stack_manifest_hash=_sha256("7"),
         deterministic_seed=42,
-        fold_identity={"fold": 2, "range": [100, 200]},
-        walk_forward_identity={"window": 3, "phase": "test"},
+        fold_identity={
+            "fold_id": "fold-2",
+            "train_start_utc_ms": 100,
+            "train_end_utc_ms": 150,
+            "test_start_utc_ms": 151,
+            "test_end_utc_ms": 200,
+        },
+        walk_forward_identity={
+            "enabled": True,
+            "window_size": 3,
+            "step_size": 1,
+            "anchored": False,
+        },
         objective_version="net-profit.v2",
         constraints_version="risk-limits.v3",
+        producer_commit="a" * 40,
+        optimizer_id="optimizer-1",
+        strategy_id="strategy-1",
+        source_hash=_sha256("8"),
+        emitted_module_hash=_sha256("9"),
+        numeric_policy="decimal-string.v1",
+        fill_policy="backtest-engine.v1",
     )
 
 
@@ -63,7 +85,7 @@ def test_trial_key_v2_seals_full_canonical_identity_without_float_boundary() -> 
     assert key.payload["content_hash"] == key.trial_key
     assert verify_content_hash(key.payload)
     assert not _contains_float(key.payload)
-    assert key.payload["normalized_parameters"] == {
+    assert key.payload["parameters"] == {
         "length": 10,
         "nested": ["1.5", True],
         "threshold": "0.125",
@@ -78,8 +100,8 @@ def test_trial_key_v2_seals_full_canonical_identity_without_float_boundary() -> 
             "length": 10,
         },
         contract_schema_hashes={
-            "openpine.trial.v2": "sha256:trial-schema",
-            "openpine.generated_artifact.v2": "sha256:generated-schema",
+            "openpine.trial.identity.v1": _sha256("6"),
+            "openpine.generated_artifact.v2": _sha256("5"),
         },
     ).seal()
     assert reordered.trial_key == key.trial_key
@@ -88,21 +110,33 @@ def test_trial_key_v2_seals_full_canonical_identity_without_float_boundary() -> 
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("generated_artifact_hash", "sha256:other-artifact"),
-        ("data_snapshot_series_hash", "sha256:other-series"),
+        ("generated_artifact_hash", _sha256("a")),
+        ("data_snapshot_series_hash", _sha256("b")),
         ("parameters", {"length": 11}),
-        ("engine_build_hash", "sha256:other-build"),
-        ("engine_config_hash", "sha256:other-config"),
+        ("engine_build_hash", _sha256("c")),
+        ("engine_config_hash", _sha256("d")),
         ("semantic_profile", "legacy_4x"),
         ("finality_policy", {"bars": "OPEN"}),
         ("warmup_policy", {"mode": "CALC_THEN_RESET_BROKER"}),
         ("score_policy", {"window": "all"}),
         ("end_policy", {"mode": "keep_open"}),
-        ("contract_schema_hashes", {"openpine.trial.v2": "sha256:other-schema"}),
-        ("stack_manifest_hash", "sha256:other-stack"),
+        ("contract_schema_hashes", {"openpine.trial.identity.v1": _sha256("e")}),
+        ("stack_manifest_hash", _sha256("f")),
         ("deterministic_seed", 7),
-        ("fold_identity", {"fold": 9}),
-        ("walk_forward_identity", {"window": 9}),
+        (
+            "fold_identity",
+            {
+                "fold_id": "fold-9",
+                "train_start_utc_ms": 1,
+                "train_end_utc_ms": 2,
+                "test_start_utc_ms": 3,
+                "test_end_utc_ms": 4,
+            },
+        ),
+        (
+            "walk_forward_identity",
+            {"enabled": True, "window_size": 9, "step_size": 1, "anchored": True},
+        ),
         ("objective_version", "objective.v9"),
         ("constraints_version", "constraints.v9"),
     ],

@@ -33,6 +33,7 @@ from optimizer.core.durable_trial import (
     failed_worker_trial as _failed_worker_trial,
     pending_trial as _pending_trial,
 )
+from optimizer.core.trial_key import validate_critical_identity_hashes
 from optimizer.errors import UnsupportedFeatureError
 from optimizer.version import __version__
 from optimizer.results.trial import Trial
@@ -146,7 +147,8 @@ def _run_reserved(
     is_baseline=False,
     baseline_name=None,
 ):
-    if not hasattr(store, "reserve_trial"):
+    durable_identity = validate_critical_identity_hashes(config)
+    if not hasattr(store, "reserve_trial") or not durable_identity:
         trial = run_one(
             tid,
             params,
@@ -180,6 +182,7 @@ def _run_reserved(
 
 def _run_jobs(jobs, runner, config, space_hash, config_hash, store):
     trials = []
+    durable_identity = validate_critical_identity_hashes(config)
     if config.max_parallel > 1 and len(jobs) > 1:
         executor_cls = (
             ProcessPoolExecutor
@@ -197,7 +200,7 @@ def _run_jobs(jobs, runner, config, space_hash, config_hash, store):
                     except StopIteration:
                         return False
                     reservation = None
-                    if hasattr(store, "reserve_trial"):
+                    if hasattr(store, "reserve_trial") and durable_identity:
                         reservation = _pending_trial(
                             tid, params, config, space_hash, config_hash
                         )
@@ -499,9 +502,13 @@ def optimize(
         trials.extend(_run_jobs(jobs, runner, config, space_hash, config_hash, store))
     if config.algorithm == "adaptive_grid" and trials:
         jobs = []
+        evaluated_hashes = {stable_hash(trial.params) for trial in trials}
         for p in adaptive_grid.refine(space, trials, config):
             if len(trials) + len(jobs) >= config.max_trials:
                 break
+            if stable_hash(p) in evaluated_hashes:
+                continue
+            evaluated_hashes.add(stable_hash(p))
             jobs.append((next_id, p))
             next_id += 1
         trials.extend(_run_jobs(jobs, runner, config, space_hash, config_hash, store))
@@ -511,7 +518,7 @@ def optimize(
         for p in profiles.values():
             store.save_profile(p)
     rec, rec_name = choose_recommended(profiles, config.selection_mode)
-    if rec is not None and hasattr(store, "save_champion"):
+    if rec is not None and rec.trial_key and hasattr(store, "save_champion"):
         store.save_champion(
             rec,
             rec_name,

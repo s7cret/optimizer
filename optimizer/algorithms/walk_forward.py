@@ -139,6 +139,19 @@ def run(
         cfg.algorithm = (
             "grid" if base_config.algorithm == "walk_forward" else base_config.algorithm
         )
+        cfg.fold_identity = {
+            "fold_id": f"walk-forward-{idx}",
+            "train_start_utc_ms": w["train"][0],
+            "train_end_utc_ms": w["train"][1],
+            "test_start_utc_ms": w["test"][0],
+            "test_end_utc_ms": w["test"][1],
+        }
+        cfg.walk_forward_identity = {
+            "enabled": True,
+            "window_size": w["test"][1] - w["train"][0],
+            "step_size": w["test"][1] - w["test"][0],
+            "anchored": base_config.walk_forward_anchor_mode == "expanding",
+        }
         train_res = optimize(
             parameters, ranged_runner(runner, w["train"], "train"), cfg
         )

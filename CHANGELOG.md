@@ -1,5 +1,12 @@
 # Changelog
 
+## 5.0.0rc4
+
+- Separates standalone `openpine.trial.identity.v1` from trial lifecycle envelopes.
+- Rejects partial durable identities before reservation, storage, or runner side effects.
+- Revalidates trial identity schema and root seals on reserve and load in both storage backends.
+- Pins the immutable OpenPine Contracts RC.4 candidate.
+
 ## 4.0.2
 
 - Refreshed package and release evidence for the coordinated OpenPine 4.0.2 stack.
