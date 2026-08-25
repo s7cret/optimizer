@@ -228,7 +228,7 @@ class TrialIdentity:
             "schema_id": TRIAL_SCHEMA_ID,
             "schema_version": "1.0.0",
             "producer": "optimizer",
-            "producer_version": "5.0.0-rc.4",
+            "producer_version": "5.0.0-rc.5",
             "producer_commit": self.producer_commit,
             "stack_id": self.stack_manifest_hash,
             "created_at_utc_ms": self.created_at_utc_ms,

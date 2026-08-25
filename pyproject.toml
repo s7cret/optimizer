@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "optimizer"
-version = "5.0.0rc4"
+version = "5.0.0rc5"
 description = "Deterministic parameter optimizer and runner contract layer for OpenPine strategy backtests"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [{name = "OpenClaw"}]
 dependencies = [
-  "openpine-contracts==5.0.0rc4",
+  "openpine-contracts==5.0.0rc5",
 ]
 
 [project.urls]

@@ -1,5 +1,10 @@
 # Changelog
 
+## 5.0.0rc5
+
+- Advances optimizer package and trial-identity producer metadata to RC.5.
+- Pins the RC.5 Contracts catalog without changing search or storage semantics.
+
 ## 5.0.0rc4
 
 - Separates standalone `openpine.trial.identity.v1` from trial lifecycle envelopes.
