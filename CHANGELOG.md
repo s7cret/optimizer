@@ -1,5 +1,10 @@
 # Changelog
 
+## 5.0.0rc6
+
+- Advances optimizer package and trial-identity producer metadata to RC.6.
+- Pins the RC.6 Contracts catalog and records generated-artifact V3 in RC.6 trial schema sets without parsing generated artifacts.
+
 ## 5.0.0rc5
 
 - Advances optimizer package and trial-identity producer metadata to RC.5.

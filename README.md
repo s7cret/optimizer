@@ -1,4 +1,4 @@
-# Optimizer 5.0.0rc5
+# Optimizer 5.0.0rc6
 
 > Dependency-light parameter optimizer and runner contract layer for OpenPine strategy backtests.
 

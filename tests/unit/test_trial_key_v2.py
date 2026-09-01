@@ -37,7 +37,7 @@ def _identity() -> TrialIdentity:
         score_policy={"window": "closed_range", "epsilon": 1e-12},
         end_policy={"mode": "liquidate"},
         contract_schema_hashes={
-            "openpine.generated_artifact.v2": _sha256("5"),
+            "openpine.generated_artifact.v3": _sha256("5"),
             "openpine.trial.identity.v1": _sha256("6"),
         },
         stack_manifest_hash=_sha256("7"),
@@ -82,6 +82,7 @@ def test_trial_key_v2_seals_full_canonical_identity_without_float_boundary() -> 
 
     assert key.trial_key.startswith("sha256:")
     assert key.payload["schema_id"] == TRIAL_SCHEMA_ID
+    assert key.payload["producer_version"] == "5.0.0-rc.6"
     assert key.payload["content_hash"] == key.trial_key
     assert verify_content_hash(key.payload)
     assert not _contains_float(key.payload)
@@ -101,7 +102,7 @@ def test_trial_key_v2_seals_full_canonical_identity_without_float_boundary() -> 
         },
         contract_schema_hashes={
             "openpine.trial.identity.v1": _sha256("6"),
-            "openpine.generated_artifact.v2": _sha256("5"),
+            "openpine.generated_artifact.v3": _sha256("5"),
         },
     ).seal()
     assert reordered.trial_key == key.trial_key
@@ -169,5 +170,14 @@ def test_parameter_normalization_rejects_unsafe_contract_values() -> None:
 
 def test_contract_schema_hashes_are_loaded_from_installed_contract_wheel() -> None:
     hashes = contract_schema_hashes()
+    assert "openpine.generated_artifact.v3" in hashes
+    assert "openpine.execution_context.v1" in hashes
+    assert "openpine.trial.identity.v1" in hashes
     assert "openpine.trial.v2" in hashes
     assert all(value.startswith("sha256:") for value in hashes.values())
+
+
+def test_trial_identity_consumes_only_the_sealed_generated_artifact_hash() -> None:
+    assert "generated_artifact_hash" in TrialIdentity.__dataclass_fields__
+    assert "generated_artifact" not in TrialIdentity.__dataclass_fields__
+    assert "generated_artifact_payload" not in TrialIdentity.__dataclass_fields__

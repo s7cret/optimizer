@@ -42,8 +42,8 @@ def _return_unpickle_exploder(_payload):  # type: ignore[no-untyped-def]
     return _ExplodesDuringResultUnpickle()
 
 
-def test_release_version_is_5_0_0_rc5() -> None:
-    assert __version__ == "5.0.0rc5"
+def test_release_version_is_5_0_0_rc6() -> None:
+    assert __version__ == "5.0.0rc6"
 
 
 def test_stable_hash_falls_back_when_backtest_engine_is_unavailable(
