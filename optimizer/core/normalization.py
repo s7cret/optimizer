@@ -17,8 +17,15 @@ def normalize_trials(trials, metric, direction="maximize"):
 
 
 def balanced_score(metrics):
-    profit = metrics.get("net_profit") or metrics.get("net_profit_percent") or 0.0
-    pf = metrics.get("profit_factor") or 1.0
-    sharpe = metrics.get("sharpe_ratio") or 0.0
-    dd = abs(metrics.get("max_drawdown_percent") or metrics.get("max_drawdown") or 0.0)
+    # Absence and an actual zero are different observations.
+    def observed(primary, fallback=None, default=0.0):
+        value = metrics.get(primary)
+        if value is None and fallback is not None:
+            value = metrics.get(fallback)
+        return default if value is None else value
+
+    profit = observed("net_profit", "net_profit_percent")
+    pf = observed("profit_factor", default=1.0)
+    sharpe = observed("sharpe_ratio")
+    dd = abs(observed("max_drawdown_percent", "max_drawdown"))
     return float(profit + 10 * pf + 5 * sharpe - dd)

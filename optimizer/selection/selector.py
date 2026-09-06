@@ -1,3 +1,5 @@
+import math
+
 from optimizer.core.metric_registry import MetricRegistry
 from optimizer.results.leaderboard import rank_trials
 from optimizer.results.profile_result import ResultProfile
@@ -6,7 +8,14 @@ from optimizer.selection.pareto_knee import pareto_knee
 
 
 def _best(trials, key, reverse=True):
-    vals = [t for t in trials if t.status == "completed" and key(t) is not None]
+    vals = [
+        t
+        for t in trials
+        if t.status == "completed"
+        and key(t) is not None
+        and not isinstance(key(t), bool)
+        and math.isfinite(key(t))
+    ]
     return sorted(vals, key=key, reverse=reverse)[0] if vals else None
 
 

@@ -1,5 +1,6 @@
 from dataclasses import asdict, is_dataclass
 from typing import Callable
+import math
 
 
 class MetricExtractor:
@@ -38,15 +39,20 @@ class MetricExtractor:
                 else:
                     try:
                         if v is not None and not isinstance(v, bool):
-                            metrics[name] = float(v)
-                    except (TypeError, ValueError):
+                            number = float(v)
+                            if math.isfinite(number):
+                                metrics[name] = number
+                    except (TypeError, ValueError, OverflowError):
                         pass
 
         flatten("", raw)
         if "max_drawdown" in metrics and metrics["max_drawdown"] < 0:
             metrics["max_drawdown"] = abs(metrics["max_drawdown"])
         for name, fn in self._custom_extractors.items():
-            val = float(fn(backtest_result))
+            value = fn(backtest_result)
+            val = float(value)
+            if isinstance(value, bool) or not math.isfinite(val):
+                raise ValueError(f"custom metric {name!r} must be a finite number")
             if name in metrics and self.custom_conflict_policy == "error":
                 raise ValueError(f"custom extractor conflict: {name}")
             if name in metrics and self.custom_conflict_policy == "keep_builtin":

@@ -1,3 +1,5 @@
+import math
+
 from optimizer.core.expression import safe_eval_numeric
 from optimizer.core.metric_registry import MetricRegistry
 
@@ -8,15 +10,16 @@ def objective_direction(name, configured="auto"):
     return "minimize" if MetricRegistry().direction(name) == "minimize" else "maximize"
 
 
-def compute_objective(
-    metrics, objective="net_profit", direction="auto", expression=None
-):
+def compute_objective(metrics, objective="net_profit", direction="auto", expression=None):
     if expression:
         return safe_eval_numeric(expression, metrics)
     v = metrics.get(objective)
     if v is None:
         raise KeyError(f"missing objective metric: {objective}")
-    return float(v)
+    number = float(v)
+    if isinstance(v, bool) or not math.isfinite(number):
+        raise ValueError(f"objective metric {objective!r} must be finite and numeric")
+    return number
 
 
 def objective_sort_value(value, direction):

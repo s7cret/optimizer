@@ -1,5 +1,6 @@
 import concurrent.futures
 import multiprocessing as mp
+import math
 import os
 import pickle
 import queue
@@ -41,9 +42,7 @@ def _invoke_runner(runner, payload):
     return runner(payload)
 
 
-def _runner_process_entry(
-    out, runner, data, isolate=False, start=None, finish=None, watch=False
-):
+def _runner_process_entry(out, runner, data, isolate=False, start=None, finish=None, watch=False):
     try:
         try:
             linux = sys.platform.startswith("linux")
@@ -134,12 +133,8 @@ def _call_runner_in_process(runner, payload, timeout):
                     raise concurrent.futures.TimeoutError("trial timeout") from exc
                 proc_reaped = True
                 if proc.exitcode == 0:
-                    raise RuntimeError(
-                        "runner process exited without a result"
-                    ) from exc
-                raise RuntimeError(
-                    f"runner process exited with code {proc.exitcode}"
-                ) from exc
+                    raise RuntimeError("runner process exited without a result") from exc
+                raise RuntimeError(f"runner process exited with code {proc.exitcode}") from exc
             _terminate_runner_process(proc, None)
             proc_reaped = True
         else:
@@ -154,12 +149,8 @@ def _call_runner_in_process(runner, payload, timeout):
                 record = out.get_nowait()
             except queue.Empty as exc:
                 if proc.exitcode == 0:
-                    raise RuntimeError(
-                        "runner process exited without a result"
-                    ) from exc
-                raise RuntimeError(
-                    f"runner process exited with code {proc.exitcode}"
-                ) from exc
+                    raise RuntimeError("runner process exited without a result") from exc
+                raise RuntimeError(f"runner process exited with code {proc.exitcode}") from exc
     finally:
         try:
             if not proc_reaped:
@@ -183,9 +174,7 @@ def _call_runner_in_process(runner, payload, timeout):
     raise RuntimeError(f"{exc_name}: {message}\n{tb}")
 
 
-def _select_timeout_backend(
-    config, runner, payload, diagnostics, trial_id, params_hash
-):
+def _select_timeout_backend(config, runner, payload, diagnostics, trial_id, params_hash):
     backend = getattr(config, "timeout_backend", "process")
     timeout = getattr(config, "timeout_per_trial_sec", None)
     if timeout is None or timeout <= 0:
@@ -280,16 +269,36 @@ def _response_diagnostics(raw, trial_id, params_hash):
 
 
 def _normalize_runner_response(raw, trial_id, params_hash):
+    diagnostics = _response_diagnostics(raw, trial_id, params_hash)
+    # Legacy dicts and typed responses obey the same completion boundary.
+    for result in (raw, _response_field(raw, "raw_result")):
+        status = _response_field(result, "status")
+        if status is not None and status != "completed":
+            diagnostics.append(
+                Diagnostic(
+                    "RUNNER_RESULT_NOT_COMPLETED",
+                    f"runner result is not completed: {status!r}",
+                    "error",
+                    trial_id,
+                    params_hash,
+                )
+            )
+        if _response_field(result, "errors"):
+            diagnostics.append(
+                Diagnostic(
+                    "RUNNER_RESULT_ERRORS",
+                    "runner result contains errors",
+                    "error",
+                    trial_id,
+                    params_hash,
+                )
+            )
     contract = _response_field(raw, "contract")
-    has_response_shape = (
-        contract is not None or _response_field(raw, "metrics") is not None
-    )
+    has_response_shape = contract is not None or _response_field(raw, "metrics") is not None
     if contract is not None and contract not in ACCEPTED_RUNNER_CONTRACTS:
-        raise ValueError(
-            f"runner response contract mismatch: {contract!r} != {RUNNER_CONTRACT!r}"
-        )
+        raise ValueError(f"runner response contract mismatch: {contract!r} != {RUNNER_CONTRACT!r}")
     if not has_response_shape:
-        return NormalizedRunnerResponse(metrics_source=raw, hashes={}, diagnostics=[])
+        return NormalizedRunnerResponse(metrics_source=raw, hashes={}, diagnostics=diagnostics)
     raw_metrics = _response_field(raw, "metrics", {})
     metrics = {} if raw_metrics is None else raw_metrics
     if not isinstance(metrics, dict):
@@ -298,11 +307,16 @@ def _normalize_runner_response(raw, trial_id, params_hash):
     hashes = {} if raw_hashes is None else raw_hashes
     if not isinstance(hashes, dict):
         raise ValueError("runner response hashes must be a dict")
+    if any(type(key) is not str or type(value) is not str for key, value in hashes.items()):
+        raise ValueError("runner response hashes must contain string keys and values")
+    for name in ("trades_available", "equity_available"):
+        if type(_response_field(raw, name, False)) is not bool:
+            raise ValueError(f"runner response {name} must be a bool")
     return NormalizedRunnerResponse(
         metrics_source=metrics,
         hashes={str(key): str(value) for key, value in dict(hashes or {}).items()},
-        diagnostics=_response_diagnostics(raw, trial_id, params_hash),
-        is_contract_response=contract == RUNNER_CONTRACT,
+        diagnostics=diagnostics,
+        is_contract_response=contract in ACCEPTED_RUNNER_CONTRACTS,
         trades_available=bool(_response_field(raw, "trades_available", False)),
         equity_available=bool(_response_field(raw, "equity_available", False)),
     )
@@ -500,11 +514,7 @@ def run_one(
                 unavailable_outputs.add("equity_curve")
             if "summary_metrics" in outputs and not response.summary_metrics_available:
                 unavailable_outputs.add("summary_metrics")
-        if (
-            caps
-            and getattr(caps, "supports_required_outputs", False)
-            and unavailable_outputs
-        ):
+        if caps and getattr(caps, "supports_required_outputs", False) and unavailable_outputs:
             err = "runner response missing required outputs: " + ", ".join(
                 sorted(unavailable_outputs)
             )
@@ -543,18 +553,10 @@ def run_one(
             and metrics.get("net_profit") is not None
             and metrics.get("max_drawdown")
         ):
-            metrics["return_drawdown_ratio"] = metrics["net_profit"] / abs(
-                metrics["max_drawdown"]
-            )
+            metrics["return_drawdown_ratio"] = metrics["net_profit"] / abs(metrics["max_drawdown"])
         missing_required = set(required) - set(metrics)
-        if (
-            caps
-            and getattr(caps, "supports_required_outputs", False)
-            and missing_required
-        ):
-            err = "runner response missing required metrics: " + ", ".join(
-                sorted(missing_required)
-            )
+        if caps and getattr(caps, "supports_required_outputs", False) and missing_required:
+            err = "runner response missing required metrics: " + ", ".join(sorted(missing_required))
             diags.append(
                 Diagnostic(
                     "RUNNER_REQUIRED_METRICS_MISSING",
@@ -584,12 +586,8 @@ def run_one(
                 is_baseline,
                 baseline_name,
             )
-        obj = compute_objective(
-            metrics, config.objective, direction, config.objective_expression
-        )
-        c = evaluate_constraints(
-            metrics, constraints, trial_id=trial_id, params_hash=params_hash
-        )
+        obj = compute_objective(metrics, config.objective, direction, config.objective_expression)
+        c = evaluate_constraints(metrics, constraints, trial_id=trial_id, params_hash=params_hash)
         diags.extend(c.diagnostics)
         effective_obj = obj
         if (
@@ -603,6 +601,8 @@ def run_one(
                 if direction == "maximize"
                 else effective_obj + c.penalty * mult
             )
+        if effective_obj is not None and not math.isfinite(effective_obj):
+            raise ValueError("objective after penalties is not finite")
         bs = balanced_score(metrics)
         r = getattr(raw, "to_dict", lambda: raw if isinstance(raw, dict) else None)()
         trial = Trial(
