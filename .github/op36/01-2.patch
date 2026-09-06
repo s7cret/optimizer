@@ -1,0 +1,203 @@
+diff --git a/optimizer/results/leaderboard.py b/optimizer/results/leaderboard.py
+index d8d4b46df5d26f7b21a553a3002fced97bbd5c5c..11617c4264ab7e48ec1b328852d293cbd9b73aaa 100644
+--- a/optimizer/results/leaderboard.py
++++ b/optimizer/results/leaderboard.py
+@@ -1,4 +1,5 @@
+ from functools import cmp_to_key
++import math
+ 
+ from optimizer.core.objective import objective_sort_value
+ 
+@@ -22,12 +23,8 @@ def _trial_compare(config):
+         return objective_sort_value(float(value), direction)
+ 
+     def compare(left, right):
+-        left_primary = objective_sort_value(
+-            left.objective_value, left.objective_direction
+-        )
+-        right_primary = objective_sort_value(
+-            right.objective_value, right.objective_direction
+-        )
++        left_primary = objective_sort_value(left.objective_value, left.objective_direction)
++        right_primary = objective_sort_value(right.objective_value, right.objective_direction)
+         if abs(left_primary - right_primary) > epsilon:
+             return -1 if left_primary > right_primary else 1
+         left_secondary = secondary_value(left)
+@@ -49,14 +46,20 @@ def _trial_compare(config):
+ 
+ 
+ def rank_trials(trials, config=None):
++    trials = list(trials)
++    for trial in trials:
++        trial.rank = None
+     completed = [
+-        t for t in trials if t.status == "completed" and t.objective_value is not None
++        t
++        for t in trials
++        if t.status == "completed"
++        and t.objective_value is not None
++        and not isinstance(t.objective_value, bool)
++        and math.isfinite(t.objective_value)
+     ]
+     if config is None:
+         completed.sort(
+-            key=lambda t: objective_sort_value(
+-                t.objective_value, t.objective_direction
+-            ),
++            key=lambda t: objective_sort_value(t.objective_value, t.objective_direction),
+             reverse=True,
+         )
+     else:
+diff --git a/optimizer/selection/selector.py b/optimizer/selection/selector.py
+index 94bf777d7bbba91f09a56896960fb53e84b79538..0feef52d13a63f712ade890d94aa270b8eb40ac4 100644
+--- a/optimizer/selection/selector.py
++++ b/optimizer/selection/selector.py
+@@ -1,3 +1,5 @@
++import math
++
+ from optimizer.core.metric_registry import MetricRegistry
+ from optimizer.results.leaderboard import rank_trials
+ from optimizer.results.profile_result import ResultProfile
+@@ -6,7 +8,14 @@ from optimizer.selection.pareto_knee import pareto_knee
+ 
+ 
+ def _best(trials, key, reverse=True):
+-    vals = [t for t in trials if t.status == "completed" and key(t) is not None]
++    vals = [
++        t
++        for t in trials
++        if t.status == "completed"
++        and key(t) is not None
++        and not isinstance(key(t), bool)
++        and math.isfinite(key(t))
++    ]
+     return sorted(vals, key=key, reverse=reverse)[0] if vals else None
+ 
+ 
+diff --git a/tests/unit/test_result_integrity.py b/tests/unit/test_result_integrity.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..8713cbcac62c31e943d1d1f39211c117c07fe386
+--- /dev/null
++++ b/tests/unit/test_result_integrity.py
+@@ -0,0 +1,121 @@
++"""Failed, partial and non-finite results must never become winning trials."""
++
++from dataclasses import replace
++from types import SimpleNamespace
++
++import pytest
++
++from optimizer import OptimizerConfig, RunnerResponse
++from optimizer.core.contracts import LEGACY_RUNNER_CONTRACTS, RUNNER_CONTRACT
++from optimizer.core.metric_extractor import MetricExtractor
++from optimizer.core.normalization import balanced_score
++from optimizer.core.objective import compute_objective
++from optimizer.core.trial_runner import _normalize_runner_response, run_one
++from optimizer.results.leaderboard import rank_trials
++
++
++@pytest.mark.parametrize(
++    "status", ["failed", "cancelled", "canceled", "running", "partial", "timeout", "unknown"]
++)
++@pytest.mark.parametrize("wrapped", [False, True])
++def test_noncompleted_results_fail_even_with_profitable_metrics(status, wrapped, tmp_path):
++    payload = {"status": status, "net_profit": 1_000_000}
++    response = (
++        RunnerResponse(metrics={"net_profit": 1_000_000}, raw_result=payload)
++        if wrapped
++        else payload
++    )
++    config = OptimizerConfig(
++        output_dir=tmp_path,
++        timeout_per_trial_sec=0,
++        report_profiles=False,
++        use_profile_auto_constraints=False,
++    )
++    trial = run_one(1, {}, lambda _: response, config, "s", "c")
++    assert trial.status == "failed" and trial.objective_value is None
++    assert rank_trials([trial], config) == []
++
++
++@pytest.mark.parametrize(
++    "bad", [float("nan"), float("inf"), -float("inf"), "NaN", "Infinity", True, 10**1000]
++)
++def test_invalid_primary_metric_fails_trial(bad, tmp_path):
++    config = OptimizerConfig(
++        output_dir=tmp_path,
++        timeout_per_trial_sec=0,
++        report_profiles=False,
++        use_profile_auto_constraints=False,
++    )
++    trial = run_one(1, {}, lambda _: {"net_profit": bad}, config, "s", "c")
++    assert trial.status == "failed" and trial.objective_value is None
++
++
++@pytest.mark.parametrize("bad", [float("nan"), float("inf"), True])
++def test_direct_objective_and_custom_metrics_reject_invalid_numbers(bad):
++    with pytest.raises(ValueError):
++        compute_objective({"net_profit": bad})
++    with pytest.raises(ValueError):
++        MetricExtractor({"net_profit": lambda _: bad}).extract({})
++
++
++def test_extractor_retains_zero_and_omits_nonfinite_optional_values():
++    assert MetricExtractor().extract(
++        {"net_profit": 0, "ratio": float("inf"), "status": "completed"}
++    ) == {"net_profit": 0.0}
++
++
++def test_zero_profit_factor_profit_and_drawdown_are_not_defaults():
++    assert (
++        balanced_score(
++            {
++                "net_profit": 0,
++                "net_profit_percent": 100,
++                "profit_factor": 0,
++                "max_drawdown_percent": 0,
++                "max_drawdown": 500,
++            }
++        )
++        == 0
++    )
++    assert balanced_score({"net_profit_percent": 3, "max_drawdown": 2}) == 11
++
++
++@pytest.mark.parametrize("contract", [RUNNER_CONTRACT, *LEGACY_RUNNER_CONTRACTS])
++def test_accepted_contract_aliases_cannot_bypass_output_validation(contract):
++    response = _normalize_runner_response(
++        RunnerResponse(contract=contract, metrics={"net_profit": 1}), 1, "p"
++    )
++    assert response.is_contract_response
++
++
++@pytest.mark.parametrize(
++    "change",
++    [
++        {"trades_available": "false"},
++        {"equity_available": 1},
++        {"hashes": {"content_hash": {"x": 1}}},
++    ],
++)
++def test_response_metadata_is_not_coerced_to_valid_types(change):
++    with pytest.raises(ValueError):
++        _normalize_runner_response(replace(RunnerResponse(), **change), 1, "p")
++
++
++def test_error_bearing_legacy_result_rejected_even_when_status_says_completed():
++    response = _normalize_runner_response(
++        {"status": "completed", "net_profit": 1, "errors": ["bad fill"]}, 1, "p"
++    )
++    assert any(
++        d.code == "RUNNER_RESULT_ERRORS" and d.severity == "error" for d in response.diagnostics
++    )
++
++
++def test_restored_nonfinite_scores_and_stale_ranks_are_excluded():
++    trials = [
++        SimpleNamespace(
++            id=i, status="completed", objective_value=v, objective_direction="maximize", rank=1
++        )
++        for i, v in enumerate([float("nan"), float("inf"), 0.0, -1.0])
++    ]
++    assert [t.id for t in rank_trials(trials)] == [2, 3]
++    assert trials[0].rank is None and trials[1].rank is None
