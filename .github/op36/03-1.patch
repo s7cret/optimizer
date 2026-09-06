@@ -1,0 +1,77 @@
+diff --git a/optimizer/runners/backtest_engine.py b/optimizer/runners/backtest_engine.py
+index e69cd3fcf06936f20fb2a99131480cf7bf9b0902..0a18c718fd488bb95bf4bdef1786a1d935333e87 100644
+--- a/optimizer/runners/backtest_engine.py
++++ b/optimizer/runners/backtest_engine.py
+@@ -140,7 +140,7 @@ def _fingerprint_result(result: Any) -> dict[str, str]:
+     elif isinstance(content_hash, str) and content_hash:
+         hashes["content_hash"] = content_hash
+     elif _field(result, "content_hash_value", None):
+-        hashes["content_hash"] = str(result.content_hash_value)
++        hashes["content_hash"] = str(_field(result, "content_hash_value"))
+     for attr, key in (
+         ("data_fingerprint", "data_fingerprint"),
+         ("strategy_fingerprint", "runner_fingerprint"),
+diff --git a/tests/unit/test_optimizer_deep_edges.py b/tests/unit/test_optimizer_deep_edges.py
+index f253c81ebcbdeb8a4c599e8af1832a7843ceca61..4cc8fda58ff58e41bf2044c0f195412053fe5be9 100644
+--- a/tests/unit/test_optimizer_deep_edges.py
++++ b/tests/unit/test_optimizer_deep_edges.py
+@@ -258,6 +258,9 @@ def test_release_distribution_main_and_backtest_hash_edges(
+     assert not _include(Path("source.zip"))
+     assert not _include(Path("optimizer.egg-info") / "PKG-INFO")
+     assert quality_main(["architecture", "optimizer", "--max-lines", "1"]) == 1
++    # Make runpy warning coverage independent of test collection/import order.
++    __import__("optimizer.distribution")
++    __import__("optimizer.release")
+     with pytest.warns(RuntimeWarning), pytest.raises(SystemExit):
+         __import__("runpy").run_module("optimizer.distribution", run_name="__main__")
+     with pytest.warns(RuntimeWarning), pytest.raises(SystemExit):
+@@ -282,7 +285,7 @@ def test_release_distribution_main_and_backtest_hash_edges(
+             return DictResult(net_profit="bad")
+ 
+     adapter = BacktestEngineRunnerAdapter(
+-        engine_factory=Engine, strategy=object(), bars=[]
++        engine_factory=Engine, strategy=object, bars=[]
+     )
+     response = adapter(RunnerRequest({}, 1, {"net_profit"}, set(), []))
+     assert any(
+diff --git a/tests/unit/test_optimizer_edge_cases.py b/tests/unit/test_optimizer_edge_cases.py
+index e98c1a71ad85ab284f1881c30fb2cafd1b753c1a..4bc3e54c4b4a1a928934424f2bd7ebf4d3d407ad 100644
+--- a/tests/unit/test_optimizer_edge_cases.py
++++ b/tests/unit/test_optimizer_edge_cases.py
+@@ -556,7 +556,7 @@ def test_trial_runner_contract_errors_and_timeout(tmp_path: Path) -> None:
+         {
+             "contract": "pine.optimizer_runner.v1",
+             "metrics": {"net_profit": 1},
+-            "hashes": {"x": 1},
++            "hashes": {"x": "1"},
+             "diagnostics": [{"code": "R", "message": "warn", "severity": "warning"}],
+         },
+         1,
+diff --git a/tests/unit/test_result_integrity.py b/tests/unit/test_result_integrity.py
+index 8713cbcac62c31e943d1d1f39211c117c07fe386..a27e345846a0be4f0a2d07099792bbf790b5d355 100644
+--- a/tests/unit/test_result_integrity.py
++++ b/tests/unit/test_result_integrity.py
+@@ -94,6 +94,7 @@ def test_accepted_contract_aliases_cannot_bypass_output_validation(contract):
+         {"trades_available": "false"},
+         {"equity_available": 1},
+         {"hashes": {"content_hash": {"x": 1}}},
++        {"hashes": {"x": 1}},
+     ],
+ )
+ def test_response_metadata_is_not_coerced_to_valid_types(change):
+diff --git a/tests/unit/test_runner_input_contract.py b/tests/unit/test_runner_input_contract.py
+index f643074f1815ff8bcf5e0f70b36722cb3d7e0ff0..178da896694347f7fd1a55b3791e7f10e0798b4b 100644
+--- a/tests/unit/test_runner_input_contract.py
++++ b/tests/unit/test_runner_input_contract.py
+@@ -198,3 +198,11 @@ def test_nested_code_identity_does_not_contain_memory_addresses():
+     exec("def factory():\n    return [n * 2 for n in range(4)]", namespace)
+     second = _callable_identity(namespace["factory"])
+     assert first["constants"] == second["constants"]
++
++
++def test_mapping_result_fallback_hash_is_read_from_the_mapping():
++    from optimizer.runners.backtest_engine import _fingerprint_result
++
++    assert _fingerprint_result({"content_hash_value": "fallback-hash"}) == {
++        "content_hash": "fallback-hash"
++    }
