@@ -676,7 +676,7 @@ def test_backtest_adapter_and_dry_run_edges(tmp_path: Path) -> None:
 
     adapter = BacktestEngineRunnerAdapter(
         engine_factory=Engine,
-        strategy=object(),
+        strategy=object,
         bars=[{"close": 1}],
         static_params={"_effective_pre_bars": 5},
     )

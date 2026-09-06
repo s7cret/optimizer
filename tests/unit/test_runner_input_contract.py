@@ -1,0 +1,200 @@
+"""Runner hints are applied or rejected; trial mutations do not reach the next trial."""
+
+from dataclasses import replace
+from unittest.mock import Mock
+
+import pytest
+
+from optimizer import BacktestEngineRunnerAdapter, RunnerRequest
+
+
+def request(**changes):
+    return replace(RunnerRequest({}, 1, {"net_profit"}, {"summary_metrics"}, []), **changes)
+
+
+def test_trial_warmup_overrides_static_and_zero_is_not_dropped():
+    received = []
+
+    class Engine:
+        def run(self, strategy, *, bars, params, effective_pre_bars=None):
+            received.append((params, effective_pre_bars))
+            return {"net_profit": 1}
+
+    runner = BacktestEngineRunnerAdapter(
+        engine_factory=Engine, strategy=object, bars=[], static_params={"_effective_pre_bars": 7}
+    )
+    for params in ({"_effective_pre_bars": 2}, {"_effective_pre_bars": 0}, {}):
+        runner(request(params=params))
+    assert received == [({}, 2), ({}, 0), ({}, 7)]
+
+
+@pytest.mark.parametrize("warmup", [-1, True, 1.5, "5"])
+def test_invalid_warmup_rejected_before_factory(warmup):
+    factory = Mock(side_effect=AssertionError("unexpected factory"))
+    runner = BacktestEngineRunnerAdapter(
+        engine_factory=factory,
+        strategy=object,
+        bars=[],
+        runner_fingerprint="r",
+        engine_config_hash="c",
+    )
+    with pytest.raises(ValueError, match="nonnegative integer"):
+        runner(request(params={"_effective_pre_bars": warmup}))
+    factory.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "hint",
+    [
+        {"seed": 7},
+        {"range": (0, 10)},
+        {"early_stop_conditions": [{"metric": "net_profit"}]},
+        {"required_outputs": {"unknown"}},
+    ],
+)
+def test_unsupported_hint_rejected_before_factory(hint):
+    factory = Mock(side_effect=AssertionError("unexpected factory"))
+    runner = BacktestEngineRunnerAdapter(
+        engine_factory=factory,
+        strategy=object,
+        bars=[],
+        runner_fingerprint="r",
+        engine_config_hash="c",
+    )
+    with pytest.raises(ValueError):
+        runner(request(**hint))
+    factory.assert_not_called()
+
+
+def test_mutation_of_caller_and_trial_objects_cannot_leak_to_later_trials():
+    bars, params = [{"close": 3}], {"nested": {"value": 2}}
+    seen = []
+
+    class Engine:
+        def run(self, strategy, *, bars, params):
+            seen.append((bars[0]["close"], params["nested"]["value"]))
+            bars[0]["close"] = 99
+            params["nested"]["value"] = 88
+            return {"net_profit": 1}
+
+    runner = BacktestEngineRunnerAdapter(
+        engine_factory=Engine, strategy=object, bars=bars, static_params=params
+    )
+    bars[0]["close"] = 4
+    params["nested"]["value"] = 5
+    runner(request())
+    runner(request())
+    assert seen == [(3, 2), (3, 2)]
+    assert bars == [{"close": 4}] and params == {"nested": {"value": 5}}
+
+
+def test_mapping_result_preserves_status_errors_outputs_and_hashes():
+    class Engine:
+        def run(self, strategy, *, bars, params):
+            return {
+                "net_profit": 1,
+                "status": "failed",
+                "errors": ["invalid execution"],
+                "closed_trades": [],
+                "equity_curve": [],
+                "content_hash": "result-hash",
+            }
+
+    runner = BacktestEngineRunnerAdapter(engine_factory=Engine, strategy=object, bars=[])
+    response = runner(request())
+    assert response.hashes["content_hash"] == "result-hash"
+    assert response.trades_available and response.equity_available
+    assert any(d["code"] == "BACKTEST_ENGINE_RUN_NOT_COMPLETED" for d in response.diagnostics)
+    assert any(d["message"] == "invalid execution" for d in response.diagnostics)
+
+
+@pytest.mark.parametrize(
+    "missing", ["runner_fingerprint", "data_fingerprint", "engine_config_hash"]
+)
+def test_strict_mode_requires_all_explicit_identities(missing):
+    hashes = {
+        key: "sha256:" + "a" * 64
+        for key in ("runner_fingerprint", "data_fingerprint", "engine_config_hash")
+    }
+    hashes.pop(missing)
+    with pytest.raises(ValueError, match=missing):
+        BacktestEngineRunnerAdapter(
+            engine_factory=object, strategy=object(), bars=[], strict_identity=True, **hashes
+        )
+
+
+def test_explicit_strict_identity_never_introspects_opaque_factory(monkeypatch):
+    import optimizer.runners.backtest_engine as module
+
+    monkeypatch.setattr(
+        module, "_callable_identity", Mock(side_effect=AssertionError("inference used"))
+    )
+    hashes = {
+        key: "sha256:" + "a" * 64
+        for key in ("runner_fingerprint", "data_fingerprint", "engine_config_hash")
+    }
+    runner = BacktestEngineRunnerAdapter(
+        engine_factory=object, strategy=object(), bars=[], strict_identity=True, **hashes
+    )
+    assert runner.fingerprint() == hashes["runner_fingerprint"]
+
+
+def test_unverifiable_warmup_is_not_silently_discarded():
+    from optimizer.runners.backtest_engine import _run_engine
+
+    class Engine:
+        def run(self, strategy, *, bars, params):
+            raise AssertionError("unexpected execution without warmup")
+
+    with pytest.raises(ValueError, match="effective_pre_bars"):
+        _run_engine(Engine(), object, [], {}, 1)
+
+
+def test_engine_kwargs_can_apply_warmup():
+    from optimizer.runners.backtest_engine import _run_engine
+
+    class Engine:
+        def run(self, strategy, **kwargs):
+            return kwargs["effective_pre_bars"]
+
+    assert _run_engine(Engine(), object, [], {}, 0) == 0
+
+
+def test_different_captured_state_does_not_collapse_to_a_python_type():
+    class Factory:
+        def __init__(self, period):
+            self.period = period
+
+        def make(self):
+            return object()
+
+    a = BacktestEngineRunnerAdapter(engine_factory=Factory(3).make, strategy=object, bars=[])
+    b = BacktestEngineRunnerAdapter(engine_factory=Factory(7).make, strategy=object, bars=[])
+    assert a.fingerprint() != b.fingerprint()
+    assert a.engine_config_hash != b.engine_config_hash
+
+
+def test_opaque_and_ambiguous_inferred_identity_requires_explicit_hashes():
+    from optimizer.runners.backtest_engine import _identity_value
+
+    with pytest.raises(TypeError, match="explicit fingerprints"):
+        _identity_value(object())
+    with pytest.raises(TypeError, match="string keys"):
+        _identity_value({1: "numeric", "1": "text"})
+    cycle = []
+    cycle.append(cycle)
+    with pytest.raises(TypeError, match="explicit fingerprints"):
+        _identity_value(cycle)
+
+
+def test_nested_code_identity_does_not_contain_memory_addresses():
+    from optimizer.runners.backtest_engine import _callable_identity
+
+    def factory():
+        return [n * 2 for n in range(4)]
+
+    first = _callable_identity(factory)
+    namespace = {}
+    exec("def factory():\n    return [n * 2 for n in range(4)]", namespace)
+    second = _callable_identity(namespace["factory"])
+    assert first["constants"] == second["constants"]

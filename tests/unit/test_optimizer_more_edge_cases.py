@@ -340,23 +340,23 @@ def test_runner_contract_output_missing_and_backtest_adapter_edges(
 
     adapter = BacktestEngineRunnerAdapter(
         engine_factory=EngineNoPre,
-        strategy=object(),
+        strategy=object,
         bars=[],
         static_params={"_effective_pre_bars": 10},
     )
-    response = adapter(RunnerRequest({}, 1, {"net_profit"}, set(), []))
-    assert response.metrics == {"net_profit": 1.0}
+    with pytest.raises(ValueError, match="effective_pre_bars"):
+        adapter(RunnerRequest({}, 1, {"net_profit"}, set(), []))
 
     class BadSignatureEngine:
         run = object()
 
     bad_adapter = BacktestEngineRunnerAdapter(
         engine_factory=BadSignatureEngine,
-        strategy=object(),
+        strategy=object,
         bars=[],
         static_params={"_effective_pre_bars": 1},
     )
-    with pytest.raises(TypeError):
+    with pytest.raises(ValueError, match="verify engine warmup"):
         bad_adapter(RunnerRequest({}, 1, set(), set(), []))
 
 
