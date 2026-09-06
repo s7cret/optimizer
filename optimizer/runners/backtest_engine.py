@@ -140,7 +140,7 @@ def _fingerprint_result(result: Any) -> dict[str, str]:
     elif isinstance(content_hash, str) and content_hash:
         hashes["content_hash"] = content_hash
     elif _field(result, "content_hash_value", None):
-        hashes["content_hash"] = str(result.content_hash_value)
+        hashes["content_hash"] = str(_field(result, "content_hash_value"))
     for attr, key in (
         ("data_fingerprint", "data_fingerprint"),
         ("strategy_fingerprint", "runner_fingerprint"),

@@ -94,6 +94,7 @@ def test_accepted_contract_aliases_cannot_bypass_output_validation(contract):
         {"trades_available": "false"},
         {"equity_available": 1},
         {"hashes": {"content_hash": {"x": 1}}},
+        {"hashes": {"x": 1}},
     ],
 )
 def test_response_metadata_is_not_coerced_to_valid_types(change):

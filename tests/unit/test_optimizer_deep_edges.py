@@ -258,6 +258,9 @@ def test_release_distribution_main_and_backtest_hash_edges(
     assert not _include(Path("source.zip"))
     assert not _include(Path("optimizer.egg-info") / "PKG-INFO")
     assert quality_main(["architecture", "optimizer", "--max-lines", "1"]) == 1
+    # Make runpy warning coverage independent of test collection/import order.
+    __import__("optimizer.distribution")
+    __import__("optimizer.release")
     with pytest.warns(RuntimeWarning), pytest.raises(SystemExit):
         __import__("runpy").run_module("optimizer.distribution", run_name="__main__")
     with pytest.warns(RuntimeWarning), pytest.raises(SystemExit):
@@ -282,7 +285,7 @@ def test_release_distribution_main_and_backtest_hash_edges(
             return DictResult(net_profit="bad")
 
     adapter = BacktestEngineRunnerAdapter(
-        engine_factory=Engine, strategy=object(), bars=[]
+        engine_factory=Engine, strategy=object, bars=[]
     )
     response = adapter(RunnerRequest({}, 1, {"net_profit"}, set(), []))
     assert any(

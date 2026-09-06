@@ -198,3 +198,11 @@ def test_nested_code_identity_does_not_contain_memory_addresses():
     exec("def factory():\n    return [n * 2 for n in range(4)]", namespace)
     second = _callable_identity(namespace["factory"])
     assert first["constants"] == second["constants"]
+
+
+def test_mapping_result_fallback_hash_is_read_from_the_mapping():
+    from optimizer.runners.backtest_engine import _fingerprint_result
+
+    assert _fingerprint_result({"content_hash_value": "fallback-hash"}) == {
+        "content_hash": "fallback-hash"
+    }

@@ -556,7 +556,7 @@ def test_trial_runner_contract_errors_and_timeout(tmp_path: Path) -> None:
         {
             "contract": "pine.optimizer_runner.v1",
             "metrics": {"net_profit": 1},
-            "hashes": {"x": 1},
+            "hashes": {"x": "1"},
             "diagnostics": [{"code": "R", "message": "warn", "severity": "warning"}],
         },
         1,
