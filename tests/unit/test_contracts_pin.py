@@ -26,6 +26,6 @@ def test_contracts_catalog() -> None:
 
 def test_ci_triggers_and_concurrency_key() -> None:
     workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
-    assert "push:\n    branches: [main]" in workflow
-    assert "pull_request:\n    branches: [main]" in workflow
+    assert "push:\n    branches: [main, release/5.0.0rc6]" in workflow
+    assert "pull_request:\n    branches: [main, release/5.0.0rc6]" in workflow
     assert "github.event.pull_request.number || github.ref" in workflow

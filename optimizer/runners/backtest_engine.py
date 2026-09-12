@@ -13,7 +13,11 @@ from optimizer.protocols import RunnerCapabilities, RunnerRequest, RunnerRespons
 
 
 def _field(result: Any, name: str, default: Any = None) -> Any:
-    return result.get(name, default) if isinstance(result, dict) else getattr(result, name, default)
+    return (
+        result.get(name, default)
+        if isinstance(result, dict)
+        else getattr(result, name, default)
+    )
 
 
 def _metric_dict(result: Any, required: set[str]) -> dict[str, float]:
@@ -60,7 +64,9 @@ def _identity_value(value: Any, _depth: int = 0) -> Any:
     if is_dataclass(value) and not inspect.isclass(value):
         from dataclasses import fields
 
-        return {field.name: visit(getattr(value, field.name)) for field in fields(value)}
+        return {
+            field.name: visit(getattr(value, field.name)) for field in fields(value)
+        }
     if isinstance(value, dict):
         if any(type(key) is not str for key in value):
             raise TypeError("runner identity mappings require string keys")
@@ -84,7 +90,11 @@ def _identity_value(value: Any, _depth: int = 0) -> Any:
             "variables": visit(value.co_varnames),
             "freevars": visit(value.co_freevars),
             "cellvars": visit(value.co_cellvars),
-            "args": [value.co_argcount, value.co_posonlyargcount, value.co_kwonlyargcount],
+            "args": [
+                value.co_argcount,
+                value.co_posonlyargcount,
+                value.co_kwonlyargcount,
+            ],
             "flags": value.co_flags,
         }
     if inspect.isclass(value):
@@ -98,12 +108,16 @@ def _identity_value(value: Any, _depth: int = 0) -> Any:
             "code": visit(value.__code__),
             "defaults": visit(value.__defaults__),
             "kwdefaults": visit(value.__kwdefaults__),
-            "closure": [visit(cell.cell_contents) for cell in (value.__closure__ or ())],
+            "closure": [
+                visit(cell.cell_contents) for cell in (value.__closure__ or ())
+            ],
         }
     state = getattr(value, "__dict__", None)
     if state:
         return {"type": visit(type(value)), "state": visit(state)}
-    raise TypeError(f"opaque runner state {type(value).__name__} requires explicit fingerprints")
+    raise TypeError(
+        f"opaque runner state {type(value).__name__} requires explicit fingerprints"
+    )
 
 
 def _source_or_none(value: Any) -> str | None:
@@ -123,10 +137,16 @@ def _callable_identity(value: Any) -> dict[str, Any]:
         "bytecode": None if code is None else code.co_code.hex(),
         "constants": None if code is None else _identity_value(code.co_consts),
         "keyword_defaults": _identity_value(getattr(value, "__kwdefaults__", None)),
-        "bound_state": _identity_value(value.__self__) if inspect.ismethod(value) else None,
-        "callable_state": None
-        if inspect.isclass(value) or inspect.isfunction(value) or inspect.ismethod(value)
-        else _identity_value(value),
+        "bound_state": (
+            _identity_value(value.__self__) if inspect.ismethod(value) else None
+        ),
+        "callable_state": (
+            None
+            if inspect.isclass(value)
+            or inspect.isfunction(value)
+            or inspect.ismethod(value)
+            else _identity_value(value)
+        ),
         "defaults": _identity_value(getattr(value, "__defaults__", None)),
         "closure": [_identity_value(cell.cell_contents) for cell in closure],
     }
@@ -191,7 +211,9 @@ def _run_engine(
     except (TypeError, ValueError) as exc:
         raise ValueError("cannot verify engine warmup support") from exc
     parameter = sig.parameters.get("effective_pre_bars")
-    accepts_keyword = parameter is not None and parameter.kind != inspect.Parameter.POSITIONAL_ONLY
+    accepts_keyword = (
+        parameter is not None and parameter.kind != inspect.Parameter.POSITIONAL_ONLY
+    )
     if not accepts_keyword and not any(
         p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
     ):
@@ -249,9 +271,12 @@ class BacktestEngineRunnerAdapter:
             ):
                 if (
                     not isinstance(value, str)
-                    or re.fullmatch(r"(?:sha256:)?(?!0{64}$)[0-9a-f]{64}", value) is None
+                    or re.fullmatch(r"(?:sha256:)?(?!0{64}$)[0-9a-f]{64}", value)
+                    is None
                 ):
-                    raise ValueError(f"strict runner identity requires an explicit SHA256 {name}")
+                    raise ValueError(
+                        f"strict runner identity requires an explicit SHA256 {name}"
+                    )
         # Explicit durable identities never introspect opaque runner state.
         factory_identity = (
             _callable_identity(engine_factory)
@@ -290,7 +315,9 @@ class BacktestEngineRunnerAdapter:
             if getattr(request, name, None) is not None:
                 raise ValueError(f"BacktestEngine adapter does not support {name}")
         if request.early_stop_conditions:
-            raise ValueError("BacktestEngine adapter does not support early_stop_conditions")
+            raise ValueError(
+                "BacktestEngine adapter does not support early_stop_conditions"
+            )
         if set(request.required_outputs) - self.capabilities.supported_outputs:
             raise ValueError("unsupported required outputs")
         params = deepcopy({**self.static_params, **request.params})
@@ -300,7 +327,11 @@ class BacktestEngineRunnerAdapter:
         engine = self.engine_factory()
         result = _run_engine(
             engine,
-            self.strategy if inspect.isclass(self.strategy) else deepcopy(self.strategy),
+            (
+                self.strategy
+                if inspect.isclass(self.strategy)
+                else deepcopy(self.strategy)
+            ),
             deepcopy(self.bars),
             params,
             pre_bars,

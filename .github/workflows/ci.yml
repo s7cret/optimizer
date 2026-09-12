@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, release/5.0.0rc6]
   pull_request:
-    branches: [main]
+    branches: [main, release/5.0.0rc6]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
@@ -15,6 +15,7 @@ permissions:
 
 jobs:
   quality:
+    name: Quality (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
