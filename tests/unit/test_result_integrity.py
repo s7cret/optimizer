@@ -15,10 +15,13 @@ from optimizer.results.leaderboard import rank_trials
 
 
 @pytest.mark.parametrize(
-    "status", ["failed", "cancelled", "canceled", "running", "partial", "timeout", "unknown"]
+    "status",
+    ["failed", "cancelled", "canceled", "running", "partial", "timeout", "unknown"],
 )
 @pytest.mark.parametrize("wrapped", [False, True])
-def test_noncompleted_results_fail_even_with_profitable_metrics(status, wrapped, tmp_path):
+def test_noncompleted_results_fail_even_with_profitable_metrics(
+    status, wrapped, tmp_path
+):
     payload = {"status": status, "net_profit": 1_000_000}
     response = (
         RunnerResponse(metrics={"net_profit": 1_000_000}, raw_result=payload)
@@ -37,7 +40,8 @@ def test_noncompleted_results_fail_even_with_profitable_metrics(status, wrapped,
 
 
 @pytest.mark.parametrize(
-    "bad", [float("nan"), float("inf"), -float("inf"), "NaN", "Infinity", True, 10**1000]
+    "bad",
+    [float("nan"), float("inf"), -float("inf"), "NaN", "Infinity", True, 10**1000],
 )
 def test_invalid_primary_metric_fails_trial(bad, tmp_path):
     config = OptimizerConfig(
@@ -107,14 +111,19 @@ def test_error_bearing_legacy_result_rejected_even_when_status_says_completed():
         {"status": "completed", "net_profit": 1, "errors": ["bad fill"]}, 1, "p"
     )
     assert any(
-        d.code == "RUNNER_RESULT_ERRORS" and d.severity == "error" for d in response.diagnostics
+        d.code == "RUNNER_RESULT_ERRORS" and d.severity == "error"
+        for d in response.diagnostics
     )
 
 
 def test_restored_nonfinite_scores_and_stale_ranks_are_excluded():
     trials = [
         SimpleNamespace(
-            id=i, status="completed", objective_value=v, objective_direction="maximize", rank=1
+            id=i,
+            status="completed",
+            objective_value=v,
+            objective_direction="maximize",
+            rank=1,
         )
         for i, v in enumerate([float("nan"), float("inf"), 0.0, -1.0])
     ]

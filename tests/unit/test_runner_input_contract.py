@@ -9,7 +9,9 @@ from optimizer import BacktestEngineRunnerAdapter, RunnerRequest
 
 
 def request(**changes):
-    return replace(RunnerRequest({}, 1, {"net_profit"}, {"summary_metrics"}, []), **changes)
+    return replace(
+        RunnerRequest({}, 1, {"net_profit"}, {"summary_metrics"}, []), **changes
+    )
 
 
 def test_trial_warmup_overrides_static_and_zero_is_not_dropped():
@@ -21,7 +23,10 @@ def test_trial_warmup_overrides_static_and_zero_is_not_dropped():
             return {"net_profit": 1}
 
     runner = BacktestEngineRunnerAdapter(
-        engine_factory=Engine, strategy=object, bars=[], static_params={"_effective_pre_bars": 7}
+        engine_factory=Engine,
+        strategy=object,
+        bars=[],
+        static_params={"_effective_pre_bars": 7},
     )
     for params in ({"_effective_pre_bars": 2}, {"_effective_pre_bars": 0}, {}):
         runner(request(params=params))
@@ -100,11 +105,15 @@ def test_mapping_result_preserves_status_errors_outputs_and_hashes():
                 "content_hash": "result-hash",
             }
 
-    runner = BacktestEngineRunnerAdapter(engine_factory=Engine, strategy=object, bars=[])
+    runner = BacktestEngineRunnerAdapter(
+        engine_factory=Engine, strategy=object, bars=[]
+    )
     response = runner(request())
     assert response.hashes["content_hash"] == "result-hash"
     assert response.trades_available and response.equity_available
-    assert any(d["code"] == "BACKTEST_ENGINE_RUN_NOT_COMPLETED" for d in response.diagnostics)
+    assert any(
+        d["code"] == "BACKTEST_ENGINE_RUN_NOT_COMPLETED" for d in response.diagnostics
+    )
     assert any(d["message"] == "invalid execution" for d in response.diagnostics)
 
 
@@ -119,7 +128,11 @@ def test_strict_mode_requires_all_explicit_identities(missing):
     hashes.pop(missing)
     with pytest.raises(ValueError, match=missing):
         BacktestEngineRunnerAdapter(
-            engine_factory=object, strategy=object(), bars=[], strict_identity=True, **hashes
+            engine_factory=object,
+            strategy=object(),
+            bars=[],
+            strict_identity=True,
+            **hashes,
         )
 
 
@@ -134,7 +147,11 @@ def test_explicit_strict_identity_never_introspects_opaque_factory(monkeypatch):
         for key in ("runner_fingerprint", "data_fingerprint", "engine_config_hash")
     }
     runner = BacktestEngineRunnerAdapter(
-        engine_factory=object, strategy=object(), bars=[], strict_identity=True, **hashes
+        engine_factory=object,
+        strategy=object(),
+        bars=[],
+        strict_identity=True,
+        **hashes,
     )
     assert runner.fingerprint() == hashes["runner_fingerprint"]
 
@@ -168,8 +185,12 @@ def test_different_captured_state_does_not_collapse_to_a_python_type():
         def make(self):
             return object()
 
-    a = BacktestEngineRunnerAdapter(engine_factory=Factory(3).make, strategy=object, bars=[])
-    b = BacktestEngineRunnerAdapter(engine_factory=Factory(7).make, strategy=object, bars=[])
+    a = BacktestEngineRunnerAdapter(
+        engine_factory=Factory(3).make, strategy=object, bars=[]
+    )
+    b = BacktestEngineRunnerAdapter(
+        engine_factory=Factory(7).make, strategy=object, bars=[]
+    )
     assert a.fingerprint() != b.fingerprint()
     assert a.engine_config_hash != b.engine_config_hash
 

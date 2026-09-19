@@ -28,4 +28,30 @@ class NormalizedRunnerResponse:
         return None if value is None else str(value)
 
 
+def _response_field(raw, name, default=None):
+    if isinstance(raw, dict):
+        return raw.get(name, default)
+    return getattr(raw, name, default)
+
+
+def _response_diagnostics(raw, trial_id, params_hash):
+    out = []
+    for item in _response_field(raw, "diagnostics", []) or []:
+        if isinstance(item, Diagnostic):
+            out.append(item)
+            continue
+        if isinstance(item, dict):
+            out.append(
+                Diagnostic(
+                    str(item.get("code", "RUNNER_DIAGNOSTIC")),
+                    str(item.get("message", "runner diagnostic")),
+                    str(item.get("severity", "warning")),
+                    trial_id,
+                    params_hash,
+                    context=item.get("context", {}),
+                )
+            )
+    return out
+
+
 __all__ = ["NormalizedRunnerResponse"]
