@@ -1,8 +1,10 @@
 # Optimizer 5.0.0rc6
 
+The supported interpreter is ordinary CPython 3.13 (`>=3.13,<3.14`) with the GIL enabled. Free-threaded builds (`3.13t`), other Python minors, and other Python implementations are outside the supported runtime policy. This interpreter policy does not narrow functional requirements or acceptance gates.
+
 > Dependency-light parameter optimizer and runner contract layer for OpenPine strategy backtests.
 
-[![Version](https://img.shields.io/badge/version-4.0.2-blue)](https://github.com/s7cret/optimizer) [![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)](https://github.com/s7cret/optimizer) [![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/s7cret/optimizer)
+[![Version](https://img.shields.io/badge/version-4.0.2-blue)](https://github.com/s7cret/optimizer) [![Python](https://img.shields.io/badge/python-3.13-blue)](https://github.com/s7cret/optimizer) [![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/s7cret/optimizer)
 
 
 **GitHub description:** Optimizer provides parameter-space validation, search algorithms, scoring, ranking, resume metadata, and reports for OpenPine/backtest runners through a clean runner protocol.

@@ -7,7 +7,11 @@ name = "optimizer"
 version = "5.0.0rc6"
 description = "Deterministic parameter optimizer and runner contract layer for OpenPine strategy backtests"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13,<3.14"
+classifiers = [
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: Implementation :: CPython",
+]
 license = "MIT"
 authors = [{name = "OpenClaw"}]
 dependencies = [
@@ -38,7 +42,7 @@ target-version = ["py313"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]
@@ -47,7 +51,7 @@ select = ["E4", "E7", "E9", "F"]
 optimizer = ["py.typed"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.13"
 ignore_missing_imports = true
 warn_unused_ignores = true
 no_implicit_optional = true

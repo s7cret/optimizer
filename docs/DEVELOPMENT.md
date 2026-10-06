@@ -1,6 +1,6 @@
 # Development
 
-Use Python 3.11 or newer.
+Use ordinary CPython 3.13 (`>=3.13,<3.14`) with the GIL enabled.
 
 ```bash
 python -m pip install -e .[dev]
