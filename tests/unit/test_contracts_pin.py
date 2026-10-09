@@ -3,7 +3,7 @@ from pathlib import Path
 from openpine_contracts import list_schema_ids
 
 RC5_CONTRACTS_SHA = "6b5e67445e2772057cd877e158c7aa0c58bdfe37"
-RC6_CONTRACTS_SHA = "904e8f660834a10d3382cd1b2ed7380c24b73072"
+RC6_CONTRACTS_SHA = "79e7f329baf3feb28459b03577e3f236bf411ee2"
 
 
 def test_contracts_dependency_and_workflow_are_pinned_to_rc6() -> None:
